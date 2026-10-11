@@ -1,0 +1,128 @@
+import com.electronwill.nightconfig.core.file.CommentedFileConfig
+import com.electronwill.nightconfig.core.io.WritingMode
+
+plugins {
+    id 'dev.architectury.loom' version '1.17.493'
+}
+
+version = '1.0.0'
+group = 'offcraft'
+
+base {
+    archivesName = 'offcraft-forge'
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.architectury.dev/' }
+    maven { url = 'https://maven.fabricmc.net/' }
+    maven { url = 'https://maven.minecraftforge.net/' }
+    maven { url = 'https://maven.neoforged.net/releases/' }
+}
+
+sourceSets {
+    main {
+        java.srcDir '../common/src/main/java'
+        resources.srcDir '../common/src/main/resources'
+    }
+}
+
+loom {
+    forge {
+        mixinConfig 'offcraft.mixins.json'
+    }
+    mixin {
+        useLegacyMixinAp = false
+    }
+    mods {
+        offcraft {
+            sourceSet sourceSets.main
+        }
+    }
+    runs {
+        client {
+            client()
+            runDir 'run'
+            programArgs '--width', '640', '--height', '360'
+            vmArgs '-Dterminal.ansi=false', '-Dterminal.jline=false'
+        }
+    }
+}
+
+dependencies {
+    minecraft 'com.mojang:minecraft:1.21.1'
+    // Forge 52 has no Explosion#getPosition collision: the older Forge patch is unnecessary.
+    mappings loom.layered {
+        mappings 'net.fabricmc:yarn:1.21.1+build.3:v2'
+    }
+    forge 'net.minecraftforge:forge:1.21.1-52.1.0'
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+    options.encoding = 'UTF-8'
+}
+
+processResources {
+    from('../LICENSE') { into 'META-INF' }
+    inputs.property 'version', project.version
+    filesMatching('META-INF/mods.toml') {
+        expand version: project.version
+    }
+}
+
+tasks.named('sourcesJar') {
+    from('../LICENSE') { into 'META-INF' }
+}
+
+jar {
+    manifest {
+        attributes 'MixinConfigs': 'offcraft.mixins.json',
+                'Automatic-Module-Name': 'offcraft.forge'
+    }
+}
+
+// Forge opens its early window before mod discovery, so a client entrypoint is too late.
+// This is also required in config/fml.toml when launching the installed production JAR.
+def prepareRunClient = tasks.register('prepareRunClient') {
+    group = 'loom'
+    description = 'Disables the Forge early loading window while preserving other FML settings.'
+    doLast {
+        def configFile = file('run/config/fml.toml')
+        configFile.parentFile.mkdirs()
+        def config = CommentedFileConfig.builder(configFile)
+                .sync()
+                .writingMode(WritingMode.REPLACE)
+                .build()
+        try {
+            config.load()
+            config.set('earlyWindowControl', false)
+            config.save()
+        } finally {
+            config.close()
+        }
+    }
+}
+
+tasks.named('runClient', JavaExec) {
+    dependsOn prepareRunClient
+    standardInput = System.in
+    standardOutput = System.out
+    errorOutput = System.err
+    maxHeapSize = '2G'
+}
+
+tasks.named('remapJar') {
+    destinationDirectory = file('../dist')
+    archiveFileName = "offcraft-${project.version}-mc1.21.1-forge.jar"
+}
+
+tasks.named('remapSourcesJar') {
+    destinationDirectory = file('../dist')
+    archiveFileName = "offcraft-${project.version}-mc1.21.1-forge-sources.jar"
+}

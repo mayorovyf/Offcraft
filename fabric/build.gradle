@@ -1,0 +1,82 @@
+plugins {
+    id 'fabric-loom' version '1.10.5'
+}
+
+version = '1.0.0'
+group = 'offcraft'
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://api.modrinth.com/maven' }
+}
+
+dependencies {
+    minecraft 'com.mojang:minecraft:1.21.1'
+    mappings 'net.fabricmc:yarn:1.21.1+build.3:v2'
+    modImplementation 'net.fabricmc:fabric-loader:0.16.14'
+    def renderer = providers.gradleProperty('renderer').getOrElse('vanilla')
+    if (renderer == 'sodium' || renderer == 'iris') {
+        modRuntimeOnly 'maven.modrinth:sodium:mc1.21.1-0.6.9-fabric'
+    }
+    if (renderer == 'iris') {
+        modRuntimeOnly 'maven.modrinth:iris:1.8.8+1.21.1-fabric'
+    }
+    if (!(renderer in ['vanilla', 'sodium', 'iris'])) {
+        throw new GradleException('renderer must be vanilla, sodium or iris')
+    }
+}
+
+sourceSets.main {
+    java.srcDir '../common/src/main/java'
+    resources.srcDir '../common/src/main/resources'
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+    options.encoding = 'UTF-8'
+}
+
+processResources {
+    from('../LICENSE') { into 'META-INF' }
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') {
+        expand version: project.version
+    }
+}
+
+tasks.named('sourcesJar') {
+    from('../LICENSE') { into 'META-INF' }
+}
+
+loom {
+    mixin {
+        defaultRefmapName = 'offcraft.refmap.json'
+    }
+    runs {
+        client {
+            client()
+            runDir 'run'
+            programArgs '--width', '640', '--height', '360'
+        }
+    }
+}
+
+tasks.named('runClient', JavaExec) {
+    standardInput = System.in
+    maxHeapSize = '2G'
+}
+
+tasks.named('remapJar') {
+    destinationDirectory = file('../dist')
+    archiveFileName = "offcraft-${project.version}-mc1.21.1-fabric.jar"
+}
+
+tasks.named('remapSourcesJar') {
+    destinationDirectory = file('../dist')
+    archiveFileName = "offcraft-${project.version}-mc1.21.1-fabric-sources.jar"
+}

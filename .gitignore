@@ -1,0 +1,70 @@
+# Generated builds and verification evidence
+/target/
+/dist/
+/output/
+**/.gradle/
+**/build/
+
+# Development clients: worlds, profiles, options, logs and downloaded mods
+/fabric/run/
+/forge/run/
+/neoforge/run/
+/run/
+/logs/
+/crash-reports/
+
+# Node dependencies and local package-manager state
+node_modules/
+.npm/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# IDE and operating-system files
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# Local configuration and credentials (never include account/launcher exports)
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.local
+*.local.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# Logs, JVM crash diagnostics and compiled/archive outputs
+*.log
+hs_err_pid*
+replay_pid*
+*.hprof
+*.class
+*.jar
+*.zip
+*.7z
+*.tar
+*.gz
+
+# Gradle wrappers are required to build from a fresh clone
+!fabric/gradle/wrapper/gradle-wrapper.jar
+!forge/gradle/wrapper/gradle-wrapper.jar
+!neoforge/gradle/wrapper/gradle-wrapper.jar

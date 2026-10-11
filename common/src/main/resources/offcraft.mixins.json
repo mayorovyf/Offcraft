@@ -1,0 +1,21 @@
+{
+  "required": true,
+  "minVersion": "0.8.7",
+  "package": "offcraft.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "WindowMixin",
+    "MinecraftClientMixin",
+    "MouseMixin",
+    "KeyBindingAccessor",
+    "ScreenModifierMixin",
+    "HandledScreenAccessor",
+    "ClientGuiInvoker",
+    "CreativeInventoryScreenInvoker",
+    "GuiKeyBindingAccessor",
+    "HandledScreenModifierMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

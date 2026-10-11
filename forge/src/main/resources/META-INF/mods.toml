@@ -1,0 +1,25 @@
+modLoader="javafml"
+loaderVersion="[52,53)"
+license="MIT"
+clientSideOnly=true
+
+[[mods]]
+modId="offcraft"
+version="${version}"
+displayName="Offcraft"
+displayTest="IGNORE_ALL_VERSION"
+description='''Hidden-window Minecraft client controlled through stdin.'''
+
+[[dependencies.offcraft]]
+modId="forge"
+mandatory=true
+versionRange="[52.1.0,53)"
+ordering="NONE"
+side="CLIENT"
+
+[[dependencies.offcraft]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.21.1]"
+ordering="NONE"
+side="CLIENT"

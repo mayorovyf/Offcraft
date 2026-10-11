@@ -1,0 +1,121 @@
+plugins {
+    id 'dev.architectury.loom' version '1.17.493'
+}
+
+version = project.mod_version
+group = 'offcraft'
+
+base {
+    archivesName = 'offcraft-neoforge'
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.architectury.dev/' }
+    maven { url = 'https://maven.fabricmc.net/' }
+    maven { url = 'https://maven.minecraftforge.net/' }
+    maven { url = 'https://maven.neoforged.net/releases/' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings loom.layered {
+        mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+        mappings "dev.architectury:yarn-mappings-patch-neoforge:${project.yarn_neoforge_patch}"
+    }
+    neoForge "net.neoforged:neoforge:${project.neoforge_version}"
+}
+
+sourceSets {
+    main {
+        java.srcDir '../common/src/main/java'
+        resources.srcDir '../common/src/main/resources'
+    }
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+    options.encoding = 'UTF-8'
+}
+
+processResources {
+    from('../LICENSE') { into 'META-INF' }
+    def replacements = [
+        version: project.version,
+        minecraft_version: project.minecraft_version,
+        neoforge_version: project.neoforge_version
+    ]
+    inputs.properties replacements
+    filesMatching('META-INF/neoforge.mods.toml') {
+        expand replacements
+    }
+}
+
+tasks.named('sourcesJar') {
+    from('../LICENSE') { into 'META-INF' }
+}
+
+loom {
+    mixin {
+        useLegacyMixinAp = false
+    }
+    mods {
+        offcraft {
+            sourceSet sourceSets.main
+        }
+    }
+    runs {
+        client {
+            client()
+            runDir 'run'
+            programArgs '--width', '640', '--height', '360'
+        }
+    }
+}
+
+// FML creates its early window before discovering ordinary mods or their mixins.
+// Production launchers must set this same option in the instance's config/fml.toml.
+// FML 4.0.45 has no JVM-property override for earlyWindowControl.
+def prepareClientConfig = tasks.register('prepareClientConfig') {
+    group = 'offcraft'
+    description = 'Disables NeoForge early display before the client JVM starts.'
+    doLast {
+        def configFile = file('run/config/fml.toml')
+        configFile.parentFile.mkdirs()
+        def config = configFile.exists() ? configFile.getText('UTF-8') : ''
+        def setting = ~/(?m)^[\t ]*earlyWindowControl[\t ]*=[^\r\n]*/
+        if (setting.matcher(config).find()) {
+            config = config.replaceAll(setting, 'earlyWindowControl=false')
+        } else {
+            config = 'earlyWindowControl=false\n' + config
+        }
+        configFile.setText(config, 'UTF-8')
+    }
+}
+
+tasks.named('runClient', JavaExec) {
+    dependsOn prepareClientConfig
+    standardInput = System.in
+    maxHeapSize = '2G'
+}
+
+jar {
+    manifest {
+        attributes 'Implementation-Version': project.version
+    }
+}
+
+tasks.named('remapJar') {
+    destinationDirectory = file('../dist')
+    archiveFileName = "offcraft-${project.version}-mc${project.minecraft_version}-neoforge.jar"
+}
+
+tasks.named('remapSourcesJar') {
+    destinationDirectory = file('../dist')
+    archiveFileName = "offcraft-${project.version}-mc${project.minecraft_version}-neoforge-sources.jar"
+}
