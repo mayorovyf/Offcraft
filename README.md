@@ -49,6 +49,7 @@ Control uses JSON Lines commands. The controller must wait for client readiness 
 
 ## Documentation
 
+- [Integrating into an existing project](spec.md) — installation, JSONL/MCP connection, process lifecycle, and examples
 - [Build and launch](docs/development.md)
 - [JSONL commands, GUI, and inventory](docs/protocol.md)
 - [MCP connection](docs/mcp.md)
