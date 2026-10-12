@@ -8,6 +8,7 @@ Commands target Windows / PowerShell unless explicitly marked as Bash in the Git
 
 | Document | When to read |
 | --- | --- |
+| [spec.md](../spec.md) | When adding Offcraft to an existing application's process lifecycle or MCP host |
 | [architecture.md](architecture.md) | Before changing common code, mixins, threads, input, capture, or loader boundaries |
 | [development.md](development.md) | For builds, launch, version updates, early-window settings, and Fabric renderer profiles |
 | [protocol.md](protocol.md) | When working with JSONL commands, errors, world state, GUI, and inventory |
@@ -15,6 +16,7 @@ Commands target Windows / PowerShell unless explicitly marked as Bash in the Git
 | [verification.md](verification.md) | To choose checks and smoke scenarios, and understand historical evidence limits |
 | [standalone.md](standalone.md) | For the root Maven/LWJGL harness, separate from Minecraft mods |
 | [git.md](git.md) | Before branch, commit, integration, tag, or publication operations |
+| [modrinth.md](modrinth.md) | For the copy-ready Modrinth listing, per-loader uploads, artwork, and local handoff bundle |
 
 Detailed contracts and procedures live here. The root README remains a user overview; AGENTS.md contains only permanent context and mandatory invariants.
 
