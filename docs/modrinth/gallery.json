@@ -1,0 +1,16 @@
+[
+  {
+    "file": "assets/gallery-world.png",
+    "featured": true,
+    "title": "Fresh capture from a hidden Minecraft client",
+    "description": "Unedited 640×360 PNG captured by Offcraft from a real Minecraft 1.21.1 Fabric development client. The game window was hidden and unfocused; this image is not a headless-mode or multiplayer claim.",
+    "ordering": 0
+  },
+  {
+    "file": "assets/icon.png",
+    "featured": false,
+    "title": "Offcraft project artwork",
+    "description": "AI-generated project artwork: a voxel cube inside a terminal window. Not a gameplay screenshot.",
+    "ordering": 1
+  }
+]

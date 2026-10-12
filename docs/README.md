@@ -15,6 +15,7 @@ Commands target Windows / PowerShell unless explicitly marked as Bash in the Git
 | [verification.md](verification.md) | To choose checks and smoke scenarios, and understand historical evidence limits |
 | [standalone.md](standalone.md) | For the root Maven/LWJGL harness, separate from Minecraft mods |
 | [git.md](git.md) | Before branch, commit, integration, tag, or publication operations |
+| [modrinth.md](modrinth.md) | For the copy-ready Modrinth listing, per-loader uploads, artwork, and local handoff bundle |
 
 Detailed contracts and procedures live here. The root README remains a user overview; AGENTS.md contains only permanent context and mandatory invariants.
 
