@@ -8,6 +8,7 @@ Commands target Windows / PowerShell unless explicitly marked as Bash in the Git
 
 | Document | When to read |
 | --- | --- |
+| [spec.md](../spec.md) | When adding Offcraft to an existing application's process lifecycle or MCP host |
 | [architecture.md](architecture.md) | Before changing common code, mixins, threads, input, capture, or loader boundaries |
 | [development.md](development.md) | For builds, launch, version updates, early-window settings, and Fabric renderer profiles |
 | [protocol.md](protocol.md) | When working with JSONL commands, errors, world state, GUI, and inventory |

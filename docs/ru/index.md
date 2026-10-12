@@ -8,6 +8,7 @@
 
 | Документ | Когда читать |
 | --- | --- |
+| [spec.md](spec.md) | При внедрении Offcraft в существующее приложение или MCP-хост |
 | [architecture.md](architecture.md) | Перед изменением общего кода, mixins, потоков, ввода, capture или границ загрузчиков |
 | [development.md](development.md) | Для сборки, запуска, обновления версий, настройки раннего окна и Fabric renderer-профилей |
 | [protocol.md](protocol.md) | При работе с JSONL-командами, ошибками, состоянием мира, GUI и инвентарём |
