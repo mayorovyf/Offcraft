@@ -32,7 +32,7 @@ Offcraft управляет **настоящим клиентом Minecraft Java
 8. Для **Forge** добавьте `-Dterminal.ansi=false` и `-Dterminal.jline=false` к JVM-опциям перед main class.
 9. Для MCP и Node.js-примера ниже установите **Node.js 22+** и получите каталог `mcp/` Offcraft из закреплённой ревизии репозитория. Сохраняйте `adapter.mjs`, `schemas.mjs` и `index.mjs` вместе. npm-зависимостей нет. При распространении сохраняйте [MIT notice](../../LICENSE).
 
-Launch-конфигурация зависит от машины и экземпляра, это не универсальный рецепт classpath. Исполняемый **Fabric development**-пример находится в [mcp.md](mcp.md). Сначала выполните `fabric/gradlew.bat runClient` для создания launch-файлов; после удаления `fabric/build/` восстановите их. Не используйте Fabric Knot-аргументы для Forge/NeoForge.
+Launch-конфигурация зависит от машины и экземпляра, это не универсальный рецепт classpath. Исполняемый **Fabric development**-пример находится в [mcp.md](mcp.md). Из корня репозитория Offcraft сначала выполните `.\fabric\gradlew.bat -p .\fabric runClient`: явно заданный каталог проекта обеспечивает создание Fabric launch-файлов. После удаления `fabric/build/` восстановите их. Не используйте Fabric Knot-аргументы для Forge/NeoForge.
 
 ## 3. Конфигурация существующего проекта
 
@@ -139,7 +139,7 @@ try {
 Многие хосты используют объект `mcpServers` с `command` и `args`. Сгенерируйте запись из приватного launch-файла, чтобы правильно закодировать вложенный массив аргументов. PowerShell-пример запускается из каталога приложения и печатает config fragment; объедините его с существующей конфигурацией хоста, не перезаписывайте другие серверы:
 
 ```powershell
-$launch = Get-Content -Raw .\launch.offcraft.json | ConvertFrom-Json
+$launch = Get-Content -Raw -Encoding UTF8 .\launch.offcraft.json | ConvertFrom-Json
 $offcraft = (Resolve-Path $env:OFFCRAFT_HOME).Path
 $node = (Get-Command node).Source
 $entry = @{
