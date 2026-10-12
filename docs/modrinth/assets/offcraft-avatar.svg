@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1280 1280" role="img" aria-labelledby="title desc">
+  <title id="title">Offcraft</title>
+  <desc id="desc">Vector reconstruction of the Offcraft PNG icon: a glowing mint cube and two command chevrons inside a charcoal terminal window on black.</desc>
+  <defs>
+    <linearGradient id="frame" gradientUnits="userSpaceOnUse" x1="150" y1="135" x2="1110" y2="1130">
+      <stop stop-color="#484f55"/>
+      <stop offset=".48" stop-color="#383f45"/>
+      <stop offset="1" stop-color="#45494e"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#90969b" stop-opacity=".65"/>
+      <stop offset=".13" stop-color="#636c72" stop-opacity=".35"/>
+      <stop offset=".85" stop-color="#40484f" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#767b80" stop-opacity=".55"/>
+    </linearGradient>
+    <linearGradient id="window" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#1b1f22"/>
+      <stop offset="1" stop-color="#14181b"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#0c1214"/>
+      <stop offset=".5" stop-color="#0d1417"/>
+      <stop offset="1" stop-color="#0e1013"/>
+    </linearGradient>
+    <linearGradient id="button" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#666f75"/>
+      <stop offset="1" stop-color="#515a60"/>
+    </linearGradient>
+    <linearGradient id="cube-top" gradientUnits="userSpaceOnUse" x1="460" y1="391" x2="789" y2="677">
+      <stop stop-color="#aaffce"/>
+      <stop offset=".55" stop-color="#b4ffda"/>
+      <stop offset="1" stop-color="#a6fbd3"/>
+    </linearGradient>
+    <linearGradient id="cube-left" gradientUnits="userSpaceOnUse" x1="349" y1="544" x2="640" y2="983">
+      <stop stop-color="#58ffc0"/>
+      <stop offset=".55" stop-color="#55f5bc"/>
+      <stop offset="1" stop-color="#4ae7b3"/>
+    </linearGradient>
+    <linearGradient id="cube-right" gradientUnits="userSpaceOnUse" x1="901" y1="511" x2="642" y2="977">
+      <stop stop-color="#22b98d"/>
+      <stop offset=".55" stop-color="#20aa87"/>
+      <stop offset="1" stop-color="#209c81"/>
+    </linearGradient>
+    <radialGradient id="ambient">
+      <stop stop-color="#31edaa" stop-opacity=".16"/>
+      <stop offset=".65" stop-color="#1adb94" stop-opacity=".07"/>
+      <stop offset="1" stop-color="#1adb94" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="cube-glow" filterUnits="userSpaceOnUse" x="210" y="220" width="830" height="910" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="34"/>
+    </filter>
+    <filter id="command-glow" filterUnits="userSpaceOnUse" x="167" y="272" width="229" height="176" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+    <clipPath id="screen-clip">
+      <rect x="170" y="266" width="914" height="814" rx="40"/>
+    </clipPath>
+  </defs>
+  <rect width="1280" height="1280" fill="#000"/>
+  <rect x="120" y="124" width="1014" height="1008" rx="108" fill="url(#frame)" stroke="url(#rim)" stroke-width="2"/>
+  <path d="M228 131H1026C1081 131 1127 176 1127 232" fill="none" stroke="#a2a7ac" stroke-opacity=".1" stroke-width="3"/>
+  <rect x="157" y="159" width="941" height="935" rx="76" fill="url(#window)"/>
+  <g fill="url(#button)">
+    <circle cx="223" cy="214" r="19.5"/>
+    <circle cx="291" cy="214" r="19.5"/>
+    <circle cx="359" cy="214" r="19.5"/>
+  </g>
+  <rect x="170" y="266" width="914" height="814" rx="40" fill="url(#screen)"/>
+  <g clip-path="url(#screen-clip)">
+    <ellipse cx="627" cy="660" rx="431" ry="452" fill="url(#ambient)"/>
+    <path d="M627 360 901 516V828L627 987 353 828V516Z" fill="#29f4a9" opacity=".23" filter="url(#cube-glow)"/>
+    <path d="M228 329 259 359 228 389M308 329 339 359 308 389" fill="none" stroke="#43ffb6" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" opacity=".44" filter="url(#command-glow)"/>
+    <path d="M228 329 259 359 228 389M308 329 339 359 308 389" fill="none" stroke="#6fffc2" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M353 516 627 360 901 516 627 673Z" fill="url(#cube-top)"/>
+    <path d="M353 516 627 673V987L353 828Z" fill="url(#cube-left)"/>
+    <path d="M627 673 901 516V828L627 987Z" fill="url(#cube-right)"/>
+  </g>
+</svg>

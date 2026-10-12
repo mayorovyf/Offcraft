@@ -41,6 +41,8 @@ Mod template: `offcraft-<version>-mc<minecraft>-<loader>[-sources].jar`. Harness
 
 Different versions and loaders coexist in `dist/`; rebuilding the same version replaces only that artifact. Module `clean` tasks remove their own `build/` or `target/`, not the shared `dist/` or other loaders' artifacts. Old artifacts are not deleted automatically; deliberately remove selected obsolete files when needed. Intermediate/unremapped JARs stay in module build directories and must not be installed instead of the `dist/` mod JARs.
 
+For local cleanup, `target/` and each loader's `build/` contain only generated intermediate outputs and may be removed while no build or client is running. Keep `dist/` for publication, `.gradle/` for dependency/launch caches, `run/` for worlds and configuration, and `output/` for verification evidence. Re-run `runClient` before using the development MCP launch after removing `build/`: its generated argument file must be recreated. Do not delete source, Gradle wrappers, documentation, or publication artwork as build residue.
+
 ## Forge and NeoForge early window
 
 **Before launching an installed client**, set the following in `<game-directory>/config/fml.toml`:
