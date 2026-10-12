@@ -32,7 +32,7 @@ There is no built-in HTTP, WebSocket, TCP listener, remote attach, or shared mul
 8. For **Forge**, also include `-Dterminal.ansi=false` and `-Dterminal.jline=false` among JVM options before the main class.
 9. For MCP or the Node.js example below, install **Node.js 22+** and obtain Offcraft's `mcp/` directory from a pinned repository revision. Keep `adapter.mjs`, `schemas.mjs`, and `index.mjs` together. No npm dependencies are required. Preserve the [MIT notice](LICENSE) when redistributing Offcraft.
 
-A launch configuration is machine/instance-specific, not a portable classpath recipe. For an executable **Fabric development** configuration, use [docs/mcp.md](docs/mcp.md). First run `fabric/gradlew.bat runClient`; it creates the launch files. After removal of `fabric/build/`, regenerate them. Never use Fabric Knot arguments for Forge/NeoForge.
+A launch configuration is machine/instance-specific, not a portable classpath recipe. For an executable **Fabric development** configuration, use [docs/mcp.md](docs/mcp.md). From the Offcraft repository root, first run `.\fabric\gradlew.bat -p .\fabric runClient`; the explicit project directory creates the Fabric launch files. After removal of `fabric/build/`, regenerate them. Never use Fabric Knot arguments for Forge/NeoForge.
 
 ## 3. Add configuration to the existing project
 
@@ -139,7 +139,7 @@ The adapter is a **stdio MCP server**, protocol **2024-11-05**. It launches a ne
 Many hosts use a `mcpServers` object with `command` and `args`. Generate its entry from your existing private launch file, so the nested argument array is encoded correctly. This PowerShell example runs from the application directory and prints a config fragment; merge it into the host's existing configuration instead of overwriting other servers:
 
 ```powershell
-$launch = Get-Content -Raw .\launch.offcraft.json | ConvertFrom-Json
+$launch = Get-Content -Raw -Encoding UTF8 .\launch.offcraft.json | ConvertFrom-Json
 $offcraft = (Resolve-Path $env:OFFCRAFT_HOME).Path
 $node = (Get-Command node).Source
 $entry = @{
