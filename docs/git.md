@@ -10,7 +10,7 @@ See also [Agent instructions](../AGENTS.md).
 
 ## Branches and integration rules
 
-- `main` is the stable branch. Changes enter it only through a pull request (PR) from `dev`, after verification and review. Direct commits and direct pushes to `main` are prohibited.
+- `main` is the stable branch. Changes enter it only through a pull request (PR) from `dev`, after verification and review. For this single-maintainer project, the author may perform the review; approval by another GitHub user is not required. Direct commits and direct pushes to `main` are prohibited.
 - `dev` is the integration branch for the next release and development builds. Do not develop or commit directly on it; merge changes from working branches.
 - For each feature, create `feat/<short-name>` from an up-to-date `dev`.
 - For fixes, create `fix/<short-name>` from `dev`. Use a separate branch for an independent substantial fix; fixes to an unfinished feature may remain on its `feat/*` branch.
@@ -21,6 +21,14 @@ See also [Agent instructions](../AGENTS.md).
 
 Even small changes require a working branch. These rules apply to future work; do not rewrite existing history to make it conform. If `dev` or a remote repository is missing, agree on repository setup before integration rather than silently substituting `main`.
 
+### Single-maintainer review and branch protection
+
+- Before merging, the maintainer reviews the complete PR diff, fixes discovered issues, and records exercised checks and limitations. An assistant may help with review; responsibility for accepting the changes remains with the maintainer.
+- GitHub protection for `main` must require a PR, with `required_approving_review_count=0`, no required code-owner approval, and no approval requirement for the last push. Keep administrator enforcement enabled and force-pushes/deletion disabled. Zero required approvals does not permit direct pushes or waive verification and self-review.
+- External review is welcome but optional. After a new push, review the new changes and repeat affected checks before merging. Resolve any actual GitHub blocking review or other protection requirement normally; do not bypass protection.
+- Change protection deliberately through repository settings or `gh` only when authorized. Do not disable protection or use an administrative merge bypass to get around a blocked PR. If more maintainers join, explicitly reconsider the approval policy.
+
+
 ## Workflow
 
 1. Inspect the current branch and working tree. Do not switch branches over someone else's unfinished changes or automatically stash, reset, or clean the tree.
@@ -28,8 +36,8 @@ Even small changes require a working branch. These rules apply to future work; d
 3. Before integration, fetch the current remote `dev`, merge it into the working branch, resolve conflicts, and repeat the affected checks. Do not postpone compatibility verification until the PR into `main`.
 4. Merge the complete, verified working branch into `dev` with a merge commit (`--no-ff`). Preserve the feature boundary; do not replace the merge with file copying, cherry-pick, or squash.
 5. Check the integrated `dev` for regressions, crashes, and interactions. Follow [verification.md](verification.md) and the time limit below.
-6. Open a PR from `dev` into `main` for detailed verification and review. Describe the changes, checks performed, and known limitations. Address review feedback through working branches merged into `dev`.
-7. Merge the verified and reviewed PR into `main`. Build releases from the accepted state of `main`.
+6. Open a PR from `dev` into `main` for detailed verification and review. Describe the changes, checks performed, and known limitations. The sole maintainer may review their own PR; external GitHub approval is optional. Address review feedback through working branches merged into `dev`.
+7. After verification, self-review, and resolution of actual blocking requirements, the maintainer may merge the PR into `main` without waiting for another user's Approve. Build releases from the accepted state of `main`.
 
 Coordinate additional merges into `dev` while a release PR is open: subsequent `dev` commits are also included in the PR.
 
@@ -139,6 +147,6 @@ Before the first commit:
 3. Run the relevant checks in [verification.md](verification.md). Build JARs remain in `dist/` and are uploaded as GitHub Release assets, not committed to the source repository.
 4. Create the initial commit on `chore/github-publication` only when authorized, using the required Conventional Commit title and full body. Establish `main` and `dev` at that reviewed initial commit as a one-time repository bootstrap; subsequent changes follow the normal working branch → `dev` → PR into `main` rules. Do not overwrite existing branches or history.
 5. Create an empty GitHub repository with the chosen visibility; do not generate another README, `.gitignore` or license there. Add its actual URL as `origin`, review the remote, and push only the explicitly authorized branches. Authentication belongs in Git Credential Manager or SSH, never in source files or a token-bearing remote URL.
-6. Set `main` as the default branch; configure its PR protection and review requirements in GitHub. Publish versions/tags/releases only under separate authorization. Branch protection and CI are not enabled merely by committing this guide.
+6. Set `main` as the default branch; configure PR protection with zero required approvals for this single-maintainer project, administrator enforcement enabled, and force-pushes/deletion disabled. Keep external review optional as described above. Publish versions/tags/releases only under separate authorization. Branch protection and CI are not enabled merely by committing this guide.
 
 Preparation checks only the local candidate file set. After a commit is approved, inspect the staged diff and history before pushing; local checks cannot prove that an existing remote has no private data.
