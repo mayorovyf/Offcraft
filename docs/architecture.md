@@ -19,20 +19,26 @@ A Minecraft mod for Windows x64, Java 21, and **Minecraft 1.21.1**, with separat
 | `common/src/main/java/offcraft/client/OffcraftClient.java` | stdin queue, command dispatch, active request, loading/connection, shutdown, and captures |
 | `CommandProtocol.java` in the same package | Strict JSONL parser and protocol 1 responses, independent of Minecraft's stdout logger |
 | `PlayerAction.java` | Vanilla key bindings, tick preparation/completion, input release, and action results |
-| `GameUi.java` | Observation, GUI callbacks, inventory, and vanilla clickSlot |
+| `GameUi.java` | On-demand player/GUI/slot observations, curated item components, vanilla callbacks and clickSlot |
 | `RenderPolicy.java` | Background rendering without stopping the game loop |
+| `MessageJournal.java` | 256-entry process-lifetime HUD message ring; 4096 UTF-16 units per entry, cursor/gap reads |
+| `WorldCatalog.java` | Creation-only seed/mode/difficulty validation and bounded read-only save discovery |
 | `common/src/main/java/offcraft/client/mixin/` | Frame/tick hooks, hidden window, prevention of mouse capture, accessors, and GUI modifiers |
 | `common/src/main/resources/offcraft.mixins.json` | Required client mixins, JAVA_21, defaultRequire=1 |
 | `fabric/src/main/java/offcraft/fabric/` | ClientModInitializer → OffcraftClient.initialize |
 | `forge/src/main/java/offcraft/forge/` | Discovery entrypoint without client classes; a CLIENT subscriber calls initialize |
 | `neoforge/src/main/java/offcraft/neoforge/` | CLIENT-only entrypoint calls initialize |
 | `mcp/adapter.mjs`, `mcp/index.mjs` | GameBridge, MCP endpoint, process launch, and CLI |
+| `mcp/sdk.mjs`, `mcp/recording.mjs` | JavaScript client API and optional bounded protocol recording outside the game process |
 | `mcp/schemas.mjs`, `mcp/adapter.test.mjs` | Command schemas, validation, and contract tests |
 | `src/main/java/offcraft/Offcraft.java` | Standalone OpenGL harness with a text interface |
 
 ## Module boundaries
 
 Each loader compiles `../common/src/main/java` and includes `../common/src/main/resources`. Game features are implemented in common, not duplicated in the loaders' bootstrap code. The root Maven project does not build the mods; the shared code is not a separate Gradle project. MCP launches the real executable without a shell and does not replace the game process.
+
+New observations are request-driven; no world scans, navigation, macro interpreter or video stream run in the mod. Only displayed messages append to the bounded journal. `press` uses one vanilla drop/swap key tick; full-stack dropping changes the Control query only for that prepared input tick. Input release includes sprint/drop/swap bindings. The Node.js layer reads explicit completed captures for MCP images, shares the existing bridge with the SDK, and records protocol only when enabled. PNG writing remains synchronous on the render thread; frequent captures require measurement, not a background-rendering performance claim.
+
 
 ## Hidden mode
 

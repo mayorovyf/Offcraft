@@ -8,7 +8,7 @@
 
 - Documentation only: check local links, examples, completeness of the migration, and the absence of unrelated project names/rules; there is no need to launch Minecraft.
 - Shared game code or mixins: build the affected loaders using [development.md](development.md), launch a real client, and exercise the changed command through JSONL. A change to common affects all three loaders; checking one does not establish that the others work.
-- MCP: run `node --test mcp/adapter.test.mjs` from the root, then use the real stdio adapter with a Java client as described in [mcp.md](mcp.md). A test transport does not prove Minecraft compatibility.
+- MCP/SDK: run `node --test mcp/*.test.mjs` from the root, then exercise the real stdio adapter/SDK with Java. A test transport does not prove Minecraft compatibility.
 - Standalone: build the Maven project, launch the JAR, and run `status`, two `render` commands, and `quit`; instructions are in [standalone.md](standalone.md).
 
 ## Game smoke scenario
@@ -19,8 +19,22 @@
 4. If capture is affected, save and inspect a PNG; compare freshness, dimensions, and tick metadata.
 5. For a long-running command, check status availability, targeted cancellation, and input release. For lifecycle changes, check quit/EOF, normal saving, and process termination.
 6. If reduced mode is affected, compare increases in game ticks and render counters. Counters are not a CPU/GPU benchmark.
+7. For bounded additions: use observed GUI widget bounds to click a real control; verify drop/drop_stack/swap by inventory changes; check sprint observation and release. Read enchanted/potion/book items and reject stale sync_id. Exercise chat/system/action-bar classification, pagination, eviction gaps and text truncation. Check creation seed/mode/difficulty in saved world data, not only command acceptance.
+8. Capture through offcraft_capture and inspect the actual image. SDK checks include AbortSignal, EOF cleanup/save/reload, quit and startup failure. Recording checks include opt-in, exclusive creation, byte/queue limits and failure reporting; no raw logs/images in the protocol journal.
 
 Record the specific commands executed, results, loader, and limitations. Do not present a build, adapter tests, or previous observations as verification of current game behavior. Delete temporary worlds/mods/scripts only if they were created for verification; preserve necessary evidence in ignored output directories.
+
+## Bounded control and observation additions (2026-10-13)
+
+- Java 21.0.12.1 and Node.js 24.21.0. `node --test mcp/*.test.mjs`: 34 passed, 0 failed. Tests cover capture path/safety/errors, SDK readiness/cancellation/lifecycle, precision-safe seeds, and bounded recorder failures/limits.
+- Final `build` succeeded for all three Gradle projects; updated remapped mod/source JARs are in `dist/`. Root Maven/standalone behavior was unchanged and was not rechecked. Checked 96 local documentation links and parsed 50 JSON example lines; no missing local targets or malformed JSON.
+- Real Minecraft 1.21.1 development clients: Fabric 0.16.14, Forge 52.1.0, NeoForge 21.1.259. All exercised the observed onboarding Continue widget, survival/easy creation, forward+sprint, one-tick drop (8→7), swap hands and full-stack drop (7→0), enchanted sword/potion/written-book details, stale item sync rejection, chat/system/action-bar reads and pagination/future-cursor rejection.
+- Each client served status/messages/worlds/item during a 200-tick action, cancelled its exact ID with released keys, returned a fresh 640×360 PNG through offcraft_capture, switched to a newly created creative/hard world and reloaded the survival world, then quit with exit code 0. Captured frames were visually inspected. Hidden/unfocused status was observed, not continuous Win32 visibility sampling.
+- Saved level.dat data on each loader retained seeds `9223372036854775807` and `-9223372036854775808`, game types survival/creative and difficulty easy/hard. Recorded accepted requests each had exactly one terminal response: Fabric 894, Forge 79, NeoForge 79.
+- Fabric additionally exercised >256 messages: retained 256, gap=true, correct last cursor; a server-rendered >4096-unit message was truncated and flagged. GUI/item/world observation remains request-driven. No steady-state CPU/GPU benchmark was performed. One explicit PNG write/readback per loader reported 101.5852 ms Fabric, 103.3894 ms Forge, 76.9045 ms NeoForge; these individual samples are not throughput guarantees.
+- Real SDK/Fabric: ready, create, AbortSignal cancellation of forward+sprint, EOF during another action with release evidence and normal saving, process exit 0; a second SDK session reloaded the saved world and quit with exit 0. Opt-in journals flushed protocol records, not image blocks/raw logs; disabled recording remained null.
+- Evidence: ignored `output/bounded-features-second/fabric/`, `output/bounded-features-third/forge/`, `output/bounded-features-first/neoforge/`, and `output/sdk-bounded-1791867953103/`. Temporary worlds/mod copies and launch/smoke scripts were removed after checks; responses, journals, summaries and PNGs were retained. Forge/NeoForge used development JARs in isolated mod directories (Forge classpath roots were removed to avoid duplicate module discovery). These checks do not establish authenticated production-launcher installation, multiplayer, Sodium/Iris compatibility, or frequent-capture performance for the new features.
+
 
 ## Shared artifact directory verification (2026-10-11)
 

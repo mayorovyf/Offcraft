@@ -19,20 +19,26 @@ Minecraft-мод для Windows x64, Java 21 и **Minecraft 1.21.1**, с отд�
 | `common/src/main/java/offcraft/client/OffcraftClient.java` | Очередь stdin, диспетчер команд, активный запрос, загрузка/соединение, завершение и снимки |
 | `CommandProtocol.java` в том же пакете | Строгий JSONL-парсер и ответы protocol 1, независимые от stdout-логгера Minecraft |
 | `PlayerAction.java` | Vanilla key bindings, подготовка/завершение тика, освобождение ввода и результат действия |
-| `GameUi.java` | Наблюдение, GUI callbacks, инвентарь и vanilla clickSlot |
+| `GameUi.java` | Наблюдения игрока/GUI/слотов по запросу, выбранные компоненты предметов, vanilla callbacks и clickSlot |
 | `RenderPolicy.java` | Фоновая отрисовка без остановки игрового цикла |
+| `MessageJournal.java` | Кольцо 256 HUD-сообщений на процесс, до 4096 UTF-16 units на запись, чтение курсором с gap |
+| `WorldCatalog.java` | Валидация seed/режима/сложности только при создании, ограниченный read-only список миров |
 | `common/src/main/java/offcraft/client/mixin/` | Hooks кадров/тиков, скрытое окно, запрет захвата мыши, accessors и GUI modifiers |
 | `common/src/main/resources/offcraft.mixins.json` | Обязательные клиентские mixins, JAVA_21, defaultRequire=1 |
 | `fabric/src/main/java/offcraft/fabric/` | ClientModInitializer → OffcraftClient.initialize |
 | `forge/src/main/java/offcraft/forge/` | Discovery entrypoint без клиентских классов; CLIENT subscriber запускает initialize |
 | `neoforge/src/main/java/offcraft/neoforge/` | CLIENT-only entrypoint запускает initialize |
 | `mcp/adapter.mjs`, `mcp/index.mjs` | GameBridge, MCP endpoint, запуск процесса и CLI |
+| `mcp/sdk.mjs`, `mcp/recording.mjs` | JavaScript API клиента и ограниченная необязательная запись протокола вне игры |
 | `mcp/schemas.mjs`, `mcp/adapter.test.mjs` | Схемы команд, валидация и контрактные тесты |
 | `src/main/java/offcraft/Offcraft.java` | Самостоятельный OpenGL-стенд с текстовым интерфейсом |
 
 ## Границы модулей
 
 Каждый загрузчик компилирует `../common/src/main/java` и включает `../common/src/main/resources`. Игровые возможности реализуются в common, а не дублируются в bootstrap загрузчиков. Корневой Maven не собирает моды; общий код не является отдельным Gradle-проектом. MCP запускает реальный executable без shell, не подменяет игровой процесс.
+
+Новые наблюдения выполняются по запросу; в моде нет сканирования мира, навигации, интерпретатора макросов и видеопотока. Только показанные сообщения добавляются в ограниченный журнал. `press` использует один тик vanilla drop/swap; полный сброс стека меняет Control query только во время подготовленного тика ввода. Освобождение включает sprint/drop/swap. Node.js читает явно завершённые захваты для MCP-изображений, использует существующий bridge в SDK и записывает протокол только при включении. PNG по-прежнему записывается синхронно на render thread; частые захваты требуют измерений, а не заявления о производительности.
+
 
 ## Скрытый режим
 
