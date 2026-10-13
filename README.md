@@ -8,12 +8,12 @@ It is neither a server bot nor a fully headless mode: the client still needs a g
 
 ## Features
 
-- Create and load local worlds, switch between them, and connect to servers.
-- Move, jump, sneak, attack, use items, and rotate the camera through normal game mechanics.
+- List, create and load local worlds with seed/mode/difficulty settings, switch worlds, and connect to servers.
+- Move, sprint, jump, sneak, attack, use/drop items, swap hands, and rotate through normal game mechanics.
 - Operate inventories, containers, the interface, and text input.
-- Read player state, items, and the crosshair target.
+- Read player state, curated item details, GUI widgets, received messages, and the crosshair target.
 - Save fresh game frames as PNG and reduce background rendering without stopping game ticks.
-- Connect external tools through an MCP adapter.
+- Connect through MCP, request PNG image responses, or use the JavaScript SDK with optional bounded session recording.
 
 ## Requirements and compatibility
 

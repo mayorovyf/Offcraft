@@ -11,7 +11,7 @@ try {
 
 if (options?.help) {
   // stdout is reserved for MCP even when showing CLI help.
-  process.stderr.write(`${USAGE}\nNode.js >=22. The client executable is launched directly, without a shell.\n`);
+  process.stderr.write(`${USAGE}\nNode.js >=22. The client executable is launched directly, without a shell.\nRecording is off by default; --record exclusively creates a JSONL file, default budget 10 MiB.\n`);
 } else if (options) {
   try {
     const { adapter, closed } = launchAdapter(options);

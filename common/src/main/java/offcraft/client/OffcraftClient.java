@@ -13,8 +13,6 @@ import net.minecraft.client.network.ServerAddress;
 import net.minecraft.client.network.ServerInfo;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.resource.DataConfiguration;
-import net.minecraft.world.Difficulty;
-import net.minecraft.world.GameMode;
 import net.minecraft.world.GameRules;
 import net.minecraft.world.gen.GeneratorOptions;
 import net.minecraft.world.gen.WorldPresets;
@@ -105,6 +103,8 @@ public final class OffcraftClient {
         CommandProtocol.accepted(request, status(client));
         if (active != null && !request.command().equals("status") && !request.command().equals("help")
                 && !request.command().equals("observe") && !request.command().equals("inventory")
+                && !request.command().equals("messages") && !request.command().equals("item")
+                && !request.command().equals("worlds")
                 && !request.command().equals("cancel") && !request.command().equals("quit")) {
             CommandProtocol.error(request, "busy", "Wait for completion of request " + active.id(), null);
             return;
@@ -115,6 +115,9 @@ public final class OffcraftClient {
                 case "status" -> CommandProtocol.completed(request, status(client));
                 case "observe" -> CommandProtocol.completed(request, GameUi.observe(client));
                 case "inventory" -> CommandProtocol.completed(request, GameUi.inventory(client));
+                case "messages" -> CommandProtocol.completed(request, MessageJournal.read(request.args()));
+                case "item" -> CommandProtocol.completed(request, GameUi.item(client, request.args()));
+                case "worlds" -> CommandProtocol.completed(request, WorldCatalog.list(client));
                 case "render_policy" -> CommandProtocol.completed(request, RenderPolicy.configure(request.args()));
                 case "gui", "key", "click", "text", "click_slot" -> {
                     JsonObject result = switch (request.command()) {
@@ -132,7 +135,9 @@ public final class OffcraftClient {
                             || !string(request.args(), "target").equals(active.id()))) {
                         throw new IllegalArgumentException("target does not match the active request");
                     }
-                    if (action == null) throw new IllegalStateException("Only an active act can be cancelled");
+                    if (action == null || !active.command().equals("act")) {
+                        throw new IllegalStateException("Only an active act can be cancelled");
+                    }
                     String target = active.id();
                     failActive(client, "cancelled", "Action cancelled; held inputs released");
                     JsonObject result = status(client);
@@ -158,15 +163,17 @@ public final class OffcraftClient {
                 case "switch_world" -> {
                     String name = worldName(request.args());
                     boolean create = booleanValue(request.args(), "create", false);
+                    WorldCatalog.Settings settings = WorldCatalog.settings(request.args(), create);
                     checkWorldFolder(client, name, create);
                     active = request;
                     disconnectWorld(client);
-                    startWorld(client, name, create);
+                    startWorld(client, name, create, settings);
                 }
                 case "help" -> {
                     JsonObject data = new JsonObject();
-                    data.addProperty("commands", "new, load, switch_world, connect, disconnect, cancel, look, act, render, render_policy, status, observe, inventory, gui, key, click, text, click_slot, help, quit");
-                    data.addProperty("buttons", "forward, back, left, right, jump, sneak, attack, use");
+                    data.addProperty("commands", "new, load, worlds, switch_world, connect, disconnect, cancel, look, act, press, render, render_policy, status, observe, inventory, item, messages, gui, key, click, text, click_slot, help, quit");
+                    data.addProperty("buttons", "forward, back, left, right, jump, sneak, attack, use, sprint");
+                    data.addProperty("press_actions", "drop, drop_stack, swap_hands");
                     data.addProperty("ticks", "1..12000");
                     data.addProperty("slot", "1..9");
                     CommandProtocol.completed(request, data);
@@ -192,10 +199,12 @@ public final class OffcraftClient {
                     active = request;
                     capture = output;
                 }
-                case "act" -> {
+                case "act", "press" -> {
                     requirePlayable(client);
-                    PlayerAction next = PlayerAction.parse(request.args());
-                    Path output = request.args().has("capture") ? outputPath(client, request.args(), "capture") : null;
+                    PlayerAction next = request.command().equals("press")
+                            ? PlayerAction.press(request.args()) : PlayerAction.parse(request.args());
+                    Path output = request.command().equals("act") && request.args().has("capture")
+                            ? outputPath(client, request.args(), "capture") : null;
                     active = request;
                     action = next;
                     capture = output;
@@ -205,9 +214,10 @@ public final class OffcraftClient {
                     requireMenu(client);
                     String name = worldName(request.args());
                     boolean create = request.command().equals("new");
+                    WorldCatalog.Settings settings = WorldCatalog.settings(request.args(), create);
                     checkWorldFolder(client, name, create);
                     active = request;
-                    startWorld(client, name, create);
+                    startWorld(client, name, create, settings);
                 }
                 default -> throw new IllegalArgumentException("Unknown command: " + request.command());
             }
@@ -249,6 +259,10 @@ public final class OffcraftClient {
 
     public static boolean attacking() {
         return action != null && !action.finished() && action.attacking();
+    }
+
+    public static boolean droppingStack() {
+        return action != null && action.droppingStack();
     }
 
     public static boolean forceDraw() {
@@ -419,12 +433,12 @@ public final class OffcraftClient {
         if (!create && !Files.isDirectory(folder)) throw new IllegalArgumentException("World not found: " + name);
     }
 
-    private static void startWorld(MinecraftClient client, String name, boolean create) {
+    private static void startWorld(MinecraftClient client, String name, boolean create, WorldCatalog.Settings settings) {
         setState(client, "loading");
         if (create) {
-            LevelInfo info = new LevelInfo(name, GameMode.CREATIVE, false, Difficulty.PEACEFUL,
+            LevelInfo info = new LevelInfo(name, settings.gameMode(), false, settings.difficulty(),
                     true, new GameRules(), DataConfiguration.SAFE_MODE);
-            client.createIntegratedServerLoader().createAndStart(name, info, new GeneratorOptions(0L, true, false),
+            client.createIntegratedServerLoader().createAndStart(name, info, new GeneratorOptions(settings.seed(), true, false),
                     registries -> registries.get(RegistryKeys.WORLD_PRESET)
                             .getOrThrow(WorldPresets.DEFAULT).createDimensionsRegistryHolder(), client.currentScreen);
         } else {

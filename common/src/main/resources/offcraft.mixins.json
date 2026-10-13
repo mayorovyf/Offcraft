@@ -6,6 +6,9 @@
   "client": [
     "WindowMixin",
     "MinecraftClientMixin",
+    "ChatHudMixin",
+    "InGameHudMixin",
+    "MessageHandlerMixin",
     "MouseMixin",
     "KeyBindingAccessor",
     "ScreenModifierMixin",

@@ -30,7 +30,7 @@ There is no built-in HTTP, WebSocket, TCP listener, remote attach, or shared mul
 6. Obtain the actual **Java executable and complete JVM/main/game argument array** from the instance's launch configuration. Include its classpath or module path, libraries, assets, natives, main class, game directory and profile arguments. Offcraft does not assemble these or authenticate accounts. A normal launcher may not expose stdin to your program; the controller must launch the actual Java process, not the launcher or a `.bat` wrapper.
 7. For **Forge and NeoForge**, set `earlyWindowControl=false` in `<game-directory>/config/fml.toml` **before** Java starts, preserving other settings. This is not a `-D` property.
 8. For **Forge**, also include `-Dterminal.ansi=false` and `-Dterminal.jline=false` among JVM options before the main class.
-9. For MCP or the Node.js example below, install **Node.js 22+** and obtain Offcraft's `mcp/` directory from a pinned repository revision. Keep `adapter.mjs`, `schemas.mjs`, and `index.mjs` together. No npm dependencies are required. Preserve the [MIT notice](LICENSE) when redistributing Offcraft.
+9. For MCP or the Node.js SDK, install **Node.js 22+** and obtain Offcraft's complete `mcp/` directory from a pinned revision. Keep its modules together, including `recording.mjs` and `sdk.mjs`. No npm dependencies are required. Preserve the [MIT notice](LICENSE) when redistributing.
 
 A launch configuration is machine/instance-specific, not a portable classpath recipe. For an executable **Fabric development** configuration, use [docs/mcp.md](docs/mcp.md). From the Offcraft repository root, first run `.\fabric\gradlew.bat -p .\fabric runClient`; the explicit project directory creates the Fabric launch files. After removal of `fabric/build/`, regenerate them. Never use Fabric Knot arguments for Forge/NeoForge.
 
@@ -58,13 +58,15 @@ Save `java`, `args`, and `gameDir` in `launch.offcraft.json` in your application
 - Minecraft logs share stdout with responses. Parse each complete line; process only objects with `protocol:1` and a recognized `type`. Treat non-protocol lines as logs, not errors in the JSONL transport. Do not append log prefixes to protocol input.
 - Wait for `event:ready` before sending commands. It means the transport is available, **not** that the world is ready. Inspect `status.screen`; startup/onboarding screens may require GUI interaction.
 - Correlate `accepted`, `completed`, and `error` by ID. `accepted` never resolves an operation. Only terminal `completed` or `error` does; `error` has top-level `code` and `message`. Some invalid requests have `id:null` and cannot resolve an ordinary pending request.
-- Serialize mutating operations in your application's scheduler. While one long action runs, `status`, `help`, `observe`, `inventory`, `cancel`, and `quit` remain available. Other commands get `busy`; the client does not provide a gameplay job queue. Its stdin queue is bounded to 32 lines: do not flood it.
+- Serialize mutating operations in your application's scheduler. While one long action runs, `status`, `help`, `observe`, `inventory`, `item`, `messages`, `worlds`, `cancel`, and `quit` remain available. Other commands get `busy`; the client has no gameplay job queue. Its stdin queue is bounded to 32 lines: do not flood it.
 - Do not retry uncertain mutating commands automatically. The protocol has no replay/idempotency history; an active duplicate ID causes a `duplicate_active_id` event, not another terminal reply.
 - Reject all unresolved operations on process/stream failure. Drain output through subprocess `close`, not only `exit`, so the final `quit` reply is not lost.
 
 ### Node.js example using the existing bridge
 
 Reuse `GameBridge` rather than adding a second JSONL parser. Its `submit()` returns `{id, command, promise}`; it generates IDs, waits for `ready`, filters logs, and resolves only terminal responses. **It does not validate arguments or serialize gameplay**: the wrapper below uses the existing validator, and the caller awaits mutating commands in order.
+
+For a higher-level validated client, use `launchClient` from `mcp/sdk.mjs`; its API, AbortSignal semantics and optional bounded session recording are documented in [MCP and SDK](docs/mcp.md#javascript-sdk). The low-level bridge example below remains useful when your application already owns the child process.
 
 Save this as `offcraft-session.mjs` in your application. Set `OFFCRAFT_HOME`, `OFFCRAFT_WORLD`, and `OFFCRAFT_CAPTURE_DIR`; prepare `launch.offcraft.json` as above. The example loads an **existing** world, walks, captures, and exits. It never creates or overwrites a world directory.
 
@@ -167,10 +169,10 @@ Send each JSON-RPC message as a single line. Wait for the response to each reque
 {"jsonrpc":"2.0","id":"status-1","method":"tools/call","params":{"name":"offcraft_command","arguments":{"command":"status"}}}
 ```
 
-- `tools/list` returns **one tool**, `offcraft_command`, whose schema covers 20 commands. Initialization/tool discovery does not wait for the game's `ready`; tool execution does.
+- `tools/list` returns `offcraft_command` (JSONL command schemas) and `offcraft_capture` (`{path?}` for an explicit fresh image). Initialization/discovery does not wait for game readiness; execution does.
 - The adapter generates game IDs. Do **not** pass a game `id` in tool arguments. Use unique JSON-RPC IDs throughout the MCP session.
 - For successful JSON-RPC `tools/call`, inspect `result.isError`, then parse `result.content[0].text` as JSON. Game errors are actual terminal envelopes. Transport failures have `source:adapter`, `type:error`, `code`, and `message`, not invented `completed` data. JSON-RPC validation/method errors instead appear in the response's top-level `error`.
-- MCP stdout contains only JSON-RPC. Drain adapter stderr continuously: it carries Minecraft logs and events. PNGs remain local files; MCP does not return an image content block or automatically upload them.
+- MCP stdout contains only JSON-RPC; drain stderr for Minecraft logs/events. `offcraft_command` leaves PNGs as local files. `offcraft_capture` additionally returns a bounded PNG image block after successful render completion; read failures are explicit adapter errors retaining `game_response`. See [image limits](docs/mcp.md#explicit-images).
 - To abandon a call, send `notifications/cancelled` with the MCP request ID. The cancelled call receives **no response**. The adapter attempts game `cancel` for the exact game ID; only active `act` is cancellable. Cancelling a load/connect call does not stop world loading/connection.
 
 ```json
@@ -214,7 +216,7 @@ Record the actual Java/loader versions, launch mode, commands, file paths, resul
 | Forge shows early window | Set `earlyWindowControl=false` in the actual instance before launch |
 | Forge logs contaminate protocol framing | Apply both terminal JVM flags; still filter non-protocol log lines |
 | MCP connects but tools fail | Finish handshake; inspect JSON-RPC error or tool `isError`; check child stderr and launch args |
-| Capture is not found | Use returned path and process cwd; MCP does not transfer PNG bytes |
+| Capture is not found | Use returned path and process cwd; offcraft_capture returns an MCP image block, offcraft_command/render returns file metadata |
 | Launch argument file missing after cleanup | Regenerate development launch files with the appropriate loader's `runClient` |
 
 Detailed contracts: [build/launch](docs/development.md), [JSONL](docs/protocol.md), [MCP](docs/mcp.md), [architecture](docs/architecture.md).

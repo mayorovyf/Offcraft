@@ -2,10 +2,21 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
-import { GameBridge, McpAdapter, PROTOCOL_VERSION, launchAdapter, parseCliArgs } from './adapter.mjs';
+import { mkdtemp, writeFile, rm, open } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { GameBridge, McpAdapter, PROTOCOL_VERSION, MAX_CAPTURE_BYTES, launchAdapter, parseCliArgs } from './adapter.mjs';
 import { validateCommandArguments } from './schemas.mjs';
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
+async function waitFor(predicate) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail('Timed out waiting for asynchronous tool response');
+}
 
 class TestChild extends EventEmitter {
   constructor() {
@@ -115,6 +126,7 @@ test('MCP initializes and lists tools without waiting for game ready', async (t)
   h.send({ jsonrpc: '2.0', id: 3, method: 'ping' });
   await flush();
   assert.equal(h.responses.find((response) => response.id === 2).result.tools[0].name, 'offcraft_command');
+  assert.ok(h.responses.find((response) => response.id === 2).result.tools.some((tool) => tool.name === 'offcraft_capture'));
   assert.deepEqual(h.responses.find((response) => response.id === 3).result, {});
   assert.equal(h.child.requests.length, 0);
 });
@@ -360,4 +372,87 @@ test('quit response drains after process exit before transport closes', async (t
   const response = emitted.split('\n').filter(Boolean).map((line) => JSON.parse(line)).find((message) => message.id === 2);
   assert.equal(response.result.isError, false);
   assert.equal(JSON.parse(response.result.content[0].text).data.state, 'stopped');
+});
+
+test('capture reads only the successful render path and command tools remain text-only', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'offcraft-image-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const actual = join(directory, 'fresh.png');
+  await writeFile(actual, png);
+  const h = harness(t);
+  await h.initialize();
+  h.child.ready();
+  h.send({ jsonrpc: '2.0', id: 'image', method: 'tools/call', params: { name: 'offcraft_capture', arguments: { path: join(directory, 'not-written.png') } } });
+  await flush();
+  const request = h.child.requests[0];
+  assert.equal(request.command, 'render');
+  h.child.accepted(request);
+  await flush();
+  assert.equal(h.responses.find((response) => response.id === 'image'), undefined);
+  h.child.completed(request, { capture: { path: actual, width: 1, height: 1 } });
+  await waitFor(() => h.responses.some((response) => response.id === 'image'));
+  const result = h.responses.find((response) => response.id === 'image').result;
+  assert.equal(result.isError, false);
+  assert.equal(result.content[1].mimeType, 'image/png');
+  assert.deepEqual(Buffer.from(result.content[1].data, 'base64'), png);
+  assert.equal(JSON.parse(result.content[0].text).id, request.id);
+  h.call('text-only', { command: 'render', path: actual });
+  await flush();
+  h.child.completed(h.child.requests[1], { capture: { path: actual } });
+  await flush();
+  assert.deepEqual(h.responses.find((response) => response.id === 'text-only').result.content.map((part) => part.type), ['text']);
+});
+
+test('capture refuses failed, missing, non-PNG, oversized and non-file results explicitly', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'offcraft-image-bad-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const bad = join(directory, 'not-png');
+  await writeFile(bad, 'not a PNG image');
+  const large = join(directory, 'large.png');
+  const file = await open(large, 'wx');
+  await file.write(png);
+  await file.truncate(MAX_CAPTURE_BYTES + 1);
+  await file.close();
+  const h = harness(t);
+  await h.initialize();
+  h.child.ready();
+  const cases = [undefined, join(directory, 'missing.png'), bad, large, directory];
+  for (const [index, path] of cases.entries()) {
+    const id = `invalid-image-${index}`;
+    h.send({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'offcraft_capture', arguments: {} } });
+    await flush();
+    const request = h.child.requests.at(-1);
+    h.child.completed(request, path === undefined ? {} : { capture: { path } });
+    await waitFor(() => h.responses.some((response) => response.id === id));
+    const result = h.responses.find((response) => response.id === id).result;
+    assert.equal(result.isError, true);
+    assert.deepEqual(result.content.map((part) => part.type), ['text']);
+    const failure = JSON.parse(result.content[0].text);
+    assert.equal(failure.source, 'adapter');
+    assert.equal(failure.code, 'capture_read_failed');
+    assert.equal(failure.game_response.id, request.id);
+  }
+  h.send({ jsonrpc: '2.0', id: 'game-failed', method: 'tools/call', params: { name: 'offcraft_capture', arguments: { path: bad } } });
+  await flush();
+  h.child.error(h.child.requests.at(-1), 'capture_failed', 'write failed');
+  await flush();
+  const result = h.responses.find((response) => response.id === 'game-failed').result;
+  assert.equal(JSON.parse(result.content[0].text).code, 'capture_failed');
+  assert.deepEqual(result.content.map((part) => part.type), ['text']);
+});
+
+test('capture validates arguments and supports silent pre-ready cancellation', async (t) => {
+  const h = harness(t);
+  await h.initialize();
+  for (const [index, args] of [null, { path: '' }, { path: 'bad\0path' }, { command: 'render' }].entries()) {
+    h.send({ jsonrpc: '2.0', id: `bad-image-${index}`, method: 'tools/call', params: { name: 'offcraft_capture', arguments: args } });
+  }
+  await flush();
+  for (let index = 0; index < 4; index += 1) assert.equal(h.responses.find((response) => response.id === `bad-image-${index}`).error.code, -32602);
+  h.send({ jsonrpc: '2.0', id: 'cancel-image', method: 'tools/call', params: { name: 'offcraft_capture', arguments: {} } });
+  h.send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 'cancel-image' } });
+  h.child.ready();
+  await flush();
+  assert.equal(h.child.requests.length, 0);
+  assert.equal(h.responses.find((response) => response.id === 'cancel-image'), undefined);
 });
