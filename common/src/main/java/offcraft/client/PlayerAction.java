@@ -11,14 +11,23 @@ import offcraft.client.mixin.KeyBindingAccessor;
 /** Holds ordinary game bindings for a fixed number of eligible client ticks. */
 public final class PlayerAction {
     private static final String[] BUTTON_NAMES = {
-            "forward", "back", "left", "right", "jump", "sneak", "attack", "use"
+            "forward", "back", "left", "right", "jump", "sneak", "attack", "use", "sprint"
+    };
+    private static final String[] KEY_NAMES = {
+            "forward", "back", "left", "right", "jump", "sneak", "attack", "use", "sprint",
+            "drop", "swap_hands"
     };
     private static final int ATTACK = 1 << 6;
     private static final int USE = 1 << 7;
+    private static final int SPRINT = 1 << 8;
+    private static final int DROP = 1 << 9;
+    private static final int SWAP_HANDS = 1 << 10;
+    private static final int QUEUED_INPUTS = ATTACK | USE | DROP | SWAP_HANDS;
 
     private final int durationTicks;
     private final int buttons;
     private final int slot;
+    private final String pressAction;
     private KeyBinding[] keys;
     private ClientPlayerEntity actionPlayer;
     private boolean started;
@@ -35,11 +44,13 @@ public final class PlayerAction {
     private int endSlot;
     private double maxY;
     private boolean sneakObserved;
+    private boolean sprintObserved;
 
-    private PlayerAction(int durationTicks, int buttons, int slot) {
+    private PlayerAction(int durationTicks, int buttons, int slot, String pressAction) {
         this.durationTicks = durationTicks;
         this.buttons = buttons;
         this.slot = slot;
+        this.pressAction = pressAction;
     }
 
     /** Validates the entire action without touching any client state. */
@@ -64,11 +75,27 @@ public final class PlayerAction {
                     case "sneak" -> 1 << 5;
                     case "attack" -> ATTACK;
                     case "use" -> USE;
+                    case "sprint" -> SPRINT;
                     default -> throw new IllegalArgumentException("Unknown button: " + button.getAsString());
                 };
             }
         }
-        return new PlayerAction(ticks, buttons, slot);
+        return new PlayerAction(ticks, buttons, slot, null);
+    }
+
+    /** Validates a single vanilla key press without touching any client state. */
+    public static PlayerAction press(JsonObject args) {
+        JsonElement value = args == null ? null : args.get("action");
+        if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
+            throw new IllegalArgumentException("action must be drop, drop_stack, or swap_hands");
+        }
+        String action = value.getAsString();
+        int buttons = switch (action) {
+            case "drop", "drop_stack" -> DROP;
+            case "swap_hands" -> SWAP_HANDS;
+            default -> throw new IllegalArgumentException("Unknown press action: " + action);
+        };
+        return new PlayerAction(1, buttons, 0, action);
     }
 
     private static int integer(JsonElement value, String name, int minimum, int maximum) {
@@ -92,7 +119,8 @@ public final class PlayerAction {
         var options = client.options;
         keys = new KeyBinding[]{
                 options.forwardKey, options.backKey, options.leftKey, options.rightKey,
-                options.jumpKey, options.sneakKey, options.attackKey, options.useKey
+                options.jumpKey, options.sneakKey, options.attackKey, options.useKey,
+                options.sprintKey, options.dropKey, options.swapHandsKey
         };
         startX = actionPlayer.getX();
         startY = actionPlayer.getY();
@@ -113,9 +141,10 @@ public final class PlayerAction {
             boolean pressed = (buttons & (1 << i)) != 0;
             KeyBindingAccessor state = (KeyBindingAccessor) keys[i];
             state.offcraft$setPressed(pressed);
-            // Queue exactly one initial click, directly on each logical binding. Holding
-            // thereafter uses vanilla breaking progress and the ordinary item-use cooldown.
-            state.offcraft$setTimesPressed(elapsedTicks == 0 && pressed && i >= 6 ? 1 : 0);
+            // Queue one initial press on the logical binding, never on its physical key.
+            // Sprint is held-only; attack/use continue through ordinary vanilla cooldowns.
+            state.offcraft$setTimesPressed(elapsedTicks == 0 && pressed
+                    && (QUEUED_INPUTS & (1 << i)) != 0 ? 1 : 0);
         }
         tickPrepared = true;
     }
@@ -128,6 +157,7 @@ public final class PlayerAction {
         recordEnd();
         maxY = Math.max(maxY, endY);
         sneakObserved |= actionPlayer.isSneaking();
+        sprintObserved |= actionPlayer.isSprinting();
         if (finished()) release(client);
     }
 
@@ -181,6 +211,11 @@ public final class PlayerAction {
         return started && !released && (buttons & ATTACK) != 0;
     }
 
+    /** Scope the parent's vanilla Control modifier hook to this prepared input tick. */
+    public boolean droppingStack() {
+        return started && !released && tickPrepared && "drop_stack".equals(pressAction);
+    }
+
     /** Evidence is snapshotted at the last action tick/release, not at later image capture. */
     public JsonObject result() {
         JsonObject result = new JsonObject();
@@ -189,6 +224,8 @@ public final class PlayerAction {
         result.addProperty("finished", finished());
         result.addProperty("maxY", maxY);
         result.addProperty("sneakObserved", sneakObserved);
+        result.addProperty("sprintObserved", sprintObserved);
+        if (pressAction != null) result.addProperty("action", pressAction);
         if (started) {
             result.add("start", position(startX, startY, startZ, startSlot));
             result.add("end", position(endX, endY, endZ, endSlot));
@@ -197,15 +234,15 @@ public final class PlayerAction {
         JsonArray heldButtons = new JsonArray();
         JsonObject keyStates = new JsonObject();
         boolean allReleased = released;
-        for (int i = 0; i < BUTTON_NAMES.length; i++) {
-            if ((buttons & (1 << i)) != 0) heldButtons.add(BUTTON_NAMES[i]);
+        for (int i = 0; i < KEY_NAMES.length; i++) {
+            if (i < BUTTON_NAMES.length && (buttons & (1 << i)) != 0) heldButtons.add(BUTTON_NAMES[i]);
             if (keys != null) {
                 JsonObject state = new JsonObject();
                 boolean pressed = keys[i].isPressed();
                 int queued = ((KeyBindingAccessor) keys[i]).offcraft$getTimesPressed();
                 state.addProperty("pressed", pressed);
                 state.addProperty("queuedPresses", queued);
-                keyStates.add(BUTTON_NAMES[i], state);
+                keyStates.add(KEY_NAMES[i], state);
                 allReleased &= !pressed && queued == 0;
             }
         }

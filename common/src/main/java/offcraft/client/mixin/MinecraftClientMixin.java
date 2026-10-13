@@ -63,6 +63,12 @@ abstract class MinecraftClientMixin {
         return OffcraftClient.attacking() || mouse.isCursorLocked();
     }
 
+    @Redirect(method = "handleInputEvents", at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/client/gui/screen/Screen;hasControlDown()Z"))
+    private boolean offcraft$controlForStackDrop() {
+        return OffcraftClient.droppingStack() || Screen.hasControlDown();
+    }
+
     @Redirect(method = "render", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/client/render/GameRenderer;render(Lnet/minecraft/client/render/RenderTickCounter;Z)V"))
     private void offcraft$drawWhenNeeded(GameRenderer renderer, RenderTickCounter counter, boolean tick) {

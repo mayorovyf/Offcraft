@@ -14,17 +14,24 @@ import net.minecraft.client.gui.screen.ingame.CreativeInventoryScreen;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.client.gui.widget.TextFieldWidget;
+import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.effect.StatusEffectInstance;
+import net.minecraft.component.DataComponentTypes;
+import net.minecraft.component.type.ItemEnchantmentsComponent;
+import net.minecraft.component.type.PotionContentsComponent;
+import net.minecraft.component.type.WritableBookContentComponent;
+import net.minecraft.component.type.WrittenBookContentComponent;
 import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.Slot;
 import net.minecraft.screen.slot.SlotActionType;
+import net.minecraft.text.Text;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
@@ -149,6 +156,91 @@ public final class GameUi {
         result.add("cursor_stack", stack(handler.getCursorStack()));
         return result;
     }
+
+    /** Reads curated components only for the requested current handler slot. */
+    public static JsonObject item(MinecraftClient client, JsonObject args) {
+        ScreenHandler handler = requirePlayer(client).currentScreenHandler;
+        int syncId = integer(args, "sync_id", 0, Integer.MAX_VALUE);
+        if (syncId != handler.syncId) {
+            throw new IllegalArgumentException("Stale sync_id: current handler is " + handler.syncId);
+        }
+        int slotId = integer(args, "slot", 0, Integer.MAX_VALUE);
+        if (slotId >= handler.slots.size() || handler.slots.get(slotId).id != slotId) {
+            throw new IllegalArgumentException("slot must be a current screen handler slot ID");
+        }
+        ItemStack value = handler.slots.get(slotId).getStack();
+        JsonObject result = stack(value);
+        result.addProperty("state", "local");
+        result.addProperty("sync_id", handler.syncId);
+        result.addProperty("revision", handler.getRevision());
+        result.addProperty("slot", slotId);
+        Text customName = value.get(DataComponentTypes.CUSTOM_NAME);
+        result.addProperty("custom_name", customName == null ? null : customName.getString());
+        result.add("enchantments", enchantments(value.getOrDefault(DataComponentTypes.ENCHANTMENTS,
+                ItemEnchantmentsComponent.DEFAULT)));
+        result.add("stored_enchantments", enchantments(value.getOrDefault(DataComponentTypes.STORED_ENCHANTMENTS,
+                ItemEnchantmentsComponent.DEFAULT)));
+        PotionContentsComponent potion = value.get(DataComponentTypes.POTION_CONTENTS);
+        if (potion != null) {
+            JsonObject contents = new JsonObject();
+            contents.addProperty("id", potion.potion().flatMap(entry -> entry.getKey())
+                    .map(key -> key.getValue().toString()).orElse(null));
+            contents.addProperty("color", potion.getColor());
+            contents.addProperty("custom_color", potion.customColor().orElse(null));
+            JsonArray effects = new JsonArray();
+            for (StatusEffectInstance effect : potion.getEffects()) effects.add(effectState(effect));
+            contents.add("effects", effects);
+            result.add("potion", contents);
+        }
+        boolean filter = client.shouldFilterText();
+        WrittenBookContentComponent written = value.get(DataComponentTypes.WRITTEN_BOOK_CONTENT);
+        WritableBookContentComponent writable = value.get(DataComponentTypes.WRITABLE_BOOK_CONTENT);
+        if (written != null) {
+            JsonObject book = new JsonObject();
+            book.addProperty("kind", "written");
+            book.addProperty("title", written.title().get(filter));
+            book.addProperty("author", written.author());
+            book.addProperty("generation", written.generation());
+            book.addProperty("resolved", written.resolved());
+            JsonArray pages = new JsonArray();
+            for (Text page : written.getPages(filter)) pages.add(page.getString());
+            book.add("pages", pages);
+            result.add("book", book);
+        } else if (writable != null) {
+            JsonObject book = new JsonObject();
+            book.addProperty("kind", "writable");
+            JsonArray pages = new JsonArray();
+            for (var page : writable.pages()) pages.add(page.get(filter));
+            book.add("pages", pages);
+            result.add("book", book);
+        }
+        return result;
+    }
+
+    private static JsonArray enchantments(ItemEnchantmentsComponent component) {
+        JsonArray result = new JsonArray();
+        for (var entry : component.getEnchantmentEntries()) {
+            JsonObject enchantment = new JsonObject();
+            enchantment.addProperty("id", entry.getKey().getKey()
+                    .map(key -> key.getValue().toString()).orElse(null));
+            enchantment.addProperty("level", entry.getIntValue());
+            result.add(enchantment);
+        }
+        return result;
+    }
+
+    private static JsonObject effectState(StatusEffectInstance effect) {
+        JsonObject result = new JsonObject();
+        result.addProperty("id", Registries.STATUS_EFFECT.getId(effect.getEffectType().value()).toString());
+        result.addProperty("amplifier", effect.getAmplifier());
+        result.addProperty("duration_ticks", effect.getDuration());
+        result.addProperty("infinite", effect.isInfinite());
+        result.addProperty("ambient", effect.isAmbient());
+        result.addProperty("show_particles", effect.shouldShowParticles());
+        result.addProperty("show_icon", effect.shouldShowIcon());
+        return result;
+    }
+
     public static JsonObject gui(MinecraftClient client, JsonObject args) {
         String action = string(args, "action");
         requireNoOverlay(client);
@@ -480,7 +572,30 @@ public final class GameUi {
         JsonArray fields = new JsonArray();
         if (screen != null) collectTextFields(screen, fields);
         result.add("text_fields", fields);
+        JsonArray buttons = new JsonArray();
+        if (screen != null) collectButtons(screen, buttons);
+        result.add("buttons", buttons);
         return result;
+    }
+
+    private static void collectButtons(ParentElement parent, JsonArray buttons) {
+        for (Element child : parent.children()) {
+            if (child instanceof ClickableWidget widget) {
+                JsonObject entry = new JsonObject();
+                entry.addProperty("label", widget.getMessage().getString());
+                JsonObject bounds = new JsonObject();
+                bounds.addProperty("x", widget.getX());
+                bounds.addProperty("y", widget.getY());
+                bounds.addProperty("width", widget.getWidth());
+                bounds.addProperty("height", widget.getHeight());
+                entry.add("bounds", bounds);
+                entry.addProperty("active", widget.active);
+                entry.addProperty("visible", widget.visible);
+                entry.addProperty("focused", widget.isFocused());
+                buttons.add(entry);
+            }
+            if (child instanceof ParentElement nested) collectButtons(nested, buttons);
+        }
     }
 
     private static void collectTextFields(ParentElement parent, JsonArray fields) {

@@ -4,6 +4,11 @@ const integer = (minimum, maximum, description) => ({
 const nonemptyString = (description) => ({ type: 'string', minLength: 1, description });
 const worldName = { type: 'string', minLength: 1, pattern: '^[A-Za-z0-9_-]+$', description: 'Local world directory name.' };
 const modifiers = integer(0, 15, 'GLFW modifier bits: SHIFT=1, CONTROL=2, ALT=4, SUPER=8.');
+const worldSettings = {
+  seed: { type: 'string', pattern: '^-?[0-9]{1,19}$', description: 'Signed 64-bit decimal seed as a string, preserving precision. Default "0".' },
+  game_mode: { type: 'string', enum: ['survival', 'creative', 'adventure', 'spectator'] },
+  difficulty: { type: 'string', enum: ['peaceful', 'easy', 'normal', 'hard'] },
+};
 
 function command(name, description, properties = {}, required = []) {
   return {
@@ -30,11 +35,15 @@ const slotVariant = (action) => command('click_slot', `Vanilla ${action} slot ac
 export const COMMAND_SCHEMAS = Object.freeze({
   act: command('act', 'Hold vanilla gameplay input for client ticks; wait for completion, optionally capturing the resulting frame.', {
     ticks: integer(1, 12000),
-    buttons: { type: 'array', items: { type: 'string', enum: ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'attack', 'use'] } },
+    buttons: { type: 'array', items: { type: 'string', enum: ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'attack', 'use', 'sprint'] } },
     slot: integer(1, 9, 'Selected hotbar slot, numbered 1..9.'),
     capture: nonemptyString('PNG path relative to the game working directory, or an absolute path.'),
   }, ['ticks']),
-  new: command('new', 'Create a new local creative world; complete only when its player and world are ready.', { world: worldName }, ['world']),
+  press: command('press', 'Perform one vanilla gameplay press over one client tick; no held input remains.', {
+    action: { type: 'string', enum: ['drop', 'drop_stack', 'swap_hands'] },
+  }, ['action']),
+  new: command('new', 'Create a local world; complete only when its player and world are ready. Defaults: seed 0, creative, peaceful.', { world: worldName, ...worldSettings }, ['world']),
+  worlds: command('worlds', 'List up to 256 local save directories with level.dat or level.dat_old; no save is modified.'),
   load: command('load', 'Load an existing local world; complete only when its player and world are ready.', { world: worldName }, ['world']),
   connect: command('connect', 'Connect the actual Minecraft client to a multiplayer server.', {
     address: nonemptyString('Server host with optional port, using Minecraft address syntax.'),
@@ -42,6 +51,7 @@ export const COMMAND_SCHEMAS = Object.freeze({
   disconnect: command('disconnect', 'Disconnect and save the current world, returning to the menu.'),
   switch_world: command('switch_world', 'Disconnect the current session and load or create the named local world.', {
     world: worldName,
+    ...worldSettings,
     create: { type: 'boolean', default: false, description: 'Create a new world rather than loading an existing one.' },
   }, ['world']),
   cancel: command('cancel', 'Cancel the active act command and release held input. Other operations cannot be cancelled by this command.', {
@@ -56,6 +66,12 @@ export const COMMAND_SCHEMAS = Object.freeze({
   status: command('status', 'Read client lifecycle, render, screen and active-request state. Available while an action is running.'),
   observe: command('observe', 'Read player position/rotation, health, food, saturation, effects, held items and the actual crosshair target. Available while busy.'),
   inventory: command('inventory', 'Read current vanilla handler sync_id, revision, numbered slots and cursor stack. Available while busy.'),
+  messages: command('messages', 'Read the bounded received-message journal after a sequence number. Available while busy.', {
+    after: integer(0, Number.MAX_SAFE_INTEGER), limit: integer(1, 256),
+  }),
+  item: command('item', 'Read curated details of one current handler slot, rejecting a stale sync_id. Available while busy.', {
+    sync_id: integer(0, 2147483647), slot: integer(0, 2147483647),
+  }, ['sync_id', 'slot']),
   gui: command('gui', 'Open the vanilla player inventory or close the current GUI.', {
     action: { type: 'string', enum: ['inventory', 'close'] },
   }, ['action']),
@@ -97,7 +113,7 @@ export const COMMAND_SCHEMAS = Object.freeze({
 export const COMMAND_NAMES = Object.freeze(Object.keys(COMMAND_SCHEMAS));
 export const COMMAND_TOOL = Object.freeze({
   name: 'offcraft_command',
-  description: 'Execute an Offcraft Fabric JSONL command. The result is the actual completed/error game envelope, never an accepted acknowledgement. One long mutation may be active; status/observe/inventory/help can interleave. Game input and inventory operations follow vanilla client/server behavior. Use status.active_id for an explicit cancel target.',
+  description: 'Execute an Offcraft JSONL command on any supported loader. The result is the completed/error envelope, never acceptance. Read-only commands can interleave with an action. Input and inventory follow vanilla mechanics. Use status.active_id for an explicit cancel target.',
   inputSchema: {
     type: 'object',
     properties: { command: { type: 'string', enum: COMMAND_NAMES } },
@@ -105,6 +121,20 @@ export const COMMAND_TOOL = Object.freeze({
     oneOf: Object.values(COMMAND_SCHEMAS),
   },
 });
+
+export const IMAGE_TOOL = Object.freeze({
+  name: 'offcraft_capture',
+  description: 'Capture one fresh finished game frame and return its PNG image plus JSONL metadata. No continuous stream. Completes after the game writes the file.',
+  inputSchema: { type: 'object', properties: { path: nonemptyString('Optional output PNG path, resolved by the game.') }, additionalProperties: false },
+});
+
+export function validateCaptureArguments(value) {
+  const errors = violations(IMAGE_TOOL.inputSchema, value, 'arguments');
+  if (typeof value?.path === 'string' && (!value.path.trim() || value.path.includes('\0'))) {
+    errors.push('arguments.path must be nonblank and contain no NUL characters');
+  }
+  return errors;
+}
 
 // This deliberately implements only the JSON Schema vocabulary used above.
 // The advertised schema is also the validation source, so its ranges cannot drift.
@@ -150,5 +180,13 @@ function violations(schema, value, path) {
 export function validateCommandArguments(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return ['arguments must be an object'];
   if (typeof value.command !== 'string' || !Object.hasOwn(COMMAND_SCHEMAS, value.command)) return [`arguments.command must be one of ${COMMAND_NAMES.join(', ')}`];
-  return [...new Set(violations(COMMAND_SCHEMAS[value.command], value, 'arguments'))];
+  const errors = violations(COMMAND_SCHEMAS[value.command], value, 'arguments');
+  if (value.seed !== undefined && typeof value.seed === 'string' && /^-?[0-9]{1,19}$/.test(value.seed)) {
+    const seed = BigInt(value.seed);
+    if (seed < -9223372036854775808n || seed > 9223372036854775807n) errors.push('arguments.seed must fit a signed 64-bit integer');
+  }
+  if (value.command === 'switch_world' && value.create !== true && Object.keys(worldSettings).some((key) => Object.hasOwn(value, key))) {
+    errors.push('world creation settings require create:true');
+  }
+  return [...new Set(errors)];
 }

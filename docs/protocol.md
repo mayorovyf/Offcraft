@@ -22,21 +22,25 @@ Wait for **`completed` with the same ID**, then perform actions sequentially:
 {"id":"quit-1","command":"quit"}
 ```
 
-In the next process, `{"id":"world-2","command":"load","world":"my-world"}` opens the saved world. `new` creates a normal world with seed 0, creative mode, peaceful difficulty, and commands enabled; an existing directory is not overwritten. Directory names use Latin letters, digits, `_`, and `-`. Creation and loading are allowed only when not in a world.
+In the next process, `{"id":"world-2","command":"load","world":"my-world"}` opens the saved world. `new` defaults to seed `"0"`, creative, peaceful, and commands enabled; an existing directory is not overwritten. Optional creation settings: `seed` is a signed 64-bit decimal **string** (−9223372036854775808…9223372036854775807), `game_mode` is `survival|creative|adventure|spectator`, and `difficulty` is `peaceful|easy|normal|hard`. The same fields are accepted by `switch_world` only with `create:true`; they are rejected for loading. Directory names use Latin letters, digits, `_`, and `-`. Creation and loading are allowed only when not in a world.
 
 | `command` | Request fields | Action |
 | --- | --- | --- |
 | `new` / `load` | `world`: string | Create / load a local world; completion only after the player and world are ready |
+| `worlds` | — | List up to 256 local save directories with level.dat/level.dat_old, without opening or editing them; `truncated` reports the limit, `can_load` reports supported directory names |
 | `connect` | `address`: string `host[:port]` | Connect from the menu; completion after the network world is ready |
 | `disconnect` | — | Exit normally to the menu; the local server saves the world |
 | `switch_world` | `world`; optional `create`: boolean | Save/close the current world and load another; `create:true` creates a new one |
 | `cancel` | optional `target`: ID of the active `act` | Cancel the action and release input, leaving the client and world running |
 | `act` | `ticks`: integer 1…12000; optional `buttons`, `slot`, `capture` | Hold game buttons for the specified number of client game ticks, release them, and optionally save a fresh frame |
+| `press` | `action`: `drop` / `drop_stack` / `swap_hands` | One vanilla gameplay press over one client tick; release before the terminal response |
 | `look` | `yaw`, `pitch`: finite numbers; pitch −90…90 | Rotate the player's camera |
 | `render` | optional `path`: string | Save the next rendered frame; defaults to `output/frame-0001.png` and subsequent numbers |
 | `status` | — | World state, PID, GLFW visibility/focus, pause state, world time, frames, ticks, size, screen, active request; position/angles/slot when a player is present |
 | `observe` | — | Player, health, hunger, effects, hands, GUI, and crosshair target |
 | `inventory` | — | Current handler, `sync_id`, revision, slots, cursor stack, and GUI coordinates |
+| `item` | `sync_id`, `slot`: current handler slot ID | Curated details for one stack; stale handler IDs are rejected |
+| `messages` | optional `after`: safe integer ≥0; `limit`: 1…256 | Read new received chat/system/action-bar messages from a bounded process-lifetime journal |
 | `gui` | `action`: `inventory` / `close` | Open the inventory / close the current screen normally |
 | `key` | `key`: key name / GLFW code; optional `modifiers` | Press and release a GUI key; outside a GUI, only inventory/chat/escape |
 | `click` | `x`, `y`; optional `button` 0…2, `modifiers` | Press and release the mouse at scaled GUI coordinates |
@@ -46,7 +50,7 @@ In the next process, `{"id":"world-2","command":"load","world":"my-world"}` open
 | `help` | — | List commands, buttons, and ranges |
 | `quit` | — | Release buttons, cancel the active request, save the world, and stop the client |
 
-`buttons` is an array: `forward`, `back`, `left`, `right`, `jump`, `sneak`, `attack`, `use`. Buttons can be combined; opposite directions are handled by normal game logic. `slot` is a hotbar number **1…9**. An empty array or omitted buttons allow waiting for ticks or selecting a slot without moving. Combination example: `{"id":"jump-1","command":"act","ticks":10,"buttons":["forward","jump","sneak"]}`.
+`buttons` is an array: `forward`, `back`, `left`, `right`, `jump`, `sneak`, `attack`, `use`, `sprint`. Buttons can be combined; opposite directions are handled by normal game logic. `slot` is a hotbar number **1…9**. Empty/omitted buttons allow waiting or selecting a slot. `press` queues one logical drop/swap key, not a held action. `drop_stack` applies Control only during its vanilla input tick; it does not write stacks. Sprint follows vanilla hunger, movement and collision rules.
 
 ## GUI, inventory, and observation
 
@@ -68,15 +72,29 @@ Send state-changing commands after the previous command's terminal response. Obt
 
 `observe`: `player` (or null), health/absorption/armor, `food`, saturation, effects with IDs and durations in ticks, items in hands, coordinates/velocity, game flags, and GUI. `target.type`: `block`, `entity`, `miss`, `unavailable`; a block contains position/face/properties, and an entity contains ID/type/position/health. This is the latest client state, not a query for server truth; the target updates during rendering.
 
+`gui.buttons` lists standard `ClickableWidget` descendants with `label`, `bounds:{x,y,width,height}`, `active`, `visible`, and `focused`. Bounds use scaled GUI pixels. Read the current screen before using `click`; no persistent widget IDs exist. Custom-drawn controls in third-party screens need not be listed.
+
+`item` returns the ordinary stack fields, `state:"local"`, handler identity/revision, slot, nullable `custom_name`, `enchantments` and `stored_enchantments` as `{id,level}` arrays. Optional `potion` includes its ID, colors and effects; optional `book` includes kind/pages and written-book title, author, generation and resolved state. Pages respect the client's text-filter setting. Details are read only for the requested slot, not every inventory observation; arbitrary components/NBT are not dumped.
+
+`messages` defaults to `after:0,limit:256`. Entries `{seq,kind,text,truncated}` have process-lifetime monotonic sequence numbers; kinds are `chat`, `system`, `action_bar`. Only messages delivered to vanilla HUD callbacks are recorded, not server-side history. Capacity is 256; plain text is bounded to 4096 UTF-16 units per entry. Response fields: `next` (last returned sequence; use as the next cursor), `oldest_seq`, `latest_seq`, `gap` (older messages were evicted), `has_more`, `capacity`, `max_text_length`. Empty journal sequences are zero. Future cursors are rejected. World changes do not reset the journal; a new process does. No polling, text analysis, or message stream is added.
+
+```json
+{"id":"survival","command":"new","world":"survival-check","seed":"42","game_mode":"survival","difficulty":"normal"}
+{"id":"sprint","command":"act","ticks":20,"buttons":["forward","sprint"]}
+{"id":"swap","command":"press","action":"swap_hands"}
+{"id":"detail","command":"item","sync_id":0,"slot":36}
+{"id":"chat-read","command":"messages","after":0,"limit":32}
+```
+
 `cancel` without a target cancels the active `act`; with a target, it requires the exact ID. The action receives `error/cancelled` with the actual tick count and `released:true`; `cancel` completes separately. This command does not cancel loading/connection; `quit` stops the entire client.
 
 ## Acceptance, completion, and errors
 
 - Every valid envelope receives `accepted` with `id`, `command`, and current `data`; this is **not** confirmation that the action has been performed. Exactly one terminal response, `completed` or `error`, then follows for that request.
 - Argument errors/unknown command: `invalid_command`; execution errors after a command has started: `command_failed`; client busy: `busy`; interruption of an unfinished action by a screen, pause, or loss of the world: `interrupted`; cancellation/shutdown: `cancelled`; PNG error: `capture_failed`. JSON/envelope error: `invalid_request`, without `accepted`; a usable ID is retained, otherwise `id:null`.
-- One long-running/state-changing command executes at a time. While it runs, `status`, `help`, `observe`, `inventory`, `cancel`, and `quit` remain available; other commands receive `busy` instead of being queued for execution. Reusing the active ID produces a `duplicate_active_id` event, not a second terminal response, including an invalid envelope whose usable ID matches the active request. There is no ID history or replay.
+- One long-running/state-changing command executes at a time. While it runs, `status`, `help`, `observe`, `inventory`, `item`, `messages`, `worlds`, `cancel`, and `quit` remain available; other commands receive `busy`. Reusing the active ID produces a `duplicate_active_id` event, not a second terminal response, including an invalid envelope whose usable ID matches the active request. There is no ID history or replay.
 - `new`/`load`/`switch_world`: `loading` events, then `in_world`; `connect`: `connecting`, then `in_world`. Completion occurs only when the player is present, the world is not paused, the screen/overlay is closed, and game ticks are allowed. A loading error requiring interaction produces `load_requires_attention`, cancelled loading produces `load_cancelled`, and a failed connection produces `connection_failed`; there is no false success. `connect` uses the launched client's profile; a development profile does not replace Microsoft authentication. Server resource packs are not accepted automatically.
-- `act`: `completed.data` contains `elapsedTicks`, `durationTicks`, `finished`, `start`/`end` with coordinates and slot, `maxY`, `sneakObserved`, `keys` with `pressed` and `queuedPresses` flags, and `released`. An error for a started action also contains the result and evidence of input release in `data`; cancellation does not pretend that all ticks were completed.
+- `act` and `press`: `completed.data` contains `elapsedTicks`, `durationTicks`, `finished`, `start`/`end`, `maxY`, `sneakObserved`, `sprintObserved`, `keys` with `pressed` and `queuedPresses`, and `released`. `press` also includes `action`. Release evidence covers sprint, drop and swap bindings too. Errors for started actions contain partial results; cancellation does not pretend that all ticks completed. `cancel` targets only `act`, not the one-tick `press`.
 - With `capture`, completion arrives **after** the PNG is written. `data.capture` contains `path`, `frame`, `width`, `height`, `tick`, `render_sequence`, and `total_ms`. `action_finished_tick` is the tick when input ended; the capture tick is no earlier than it. The capture uses an already completed game frame and the final interpolation state, not an old framebuffer.
 - A path may contain spaces in the JSON string. Relative paths are resolved from the working directory (`fabric/run/` for `runClient`). The successful PNG counter starts at zero in a new process, and matching files are overwritten. A write error does not increment the counter.
 - `quit.completed` is sent after client resources have been released. EOF also cancels the active action, releases buttons, and saves the world normally; it has no ID, and a `stopped` event is emitted.
