@@ -30,7 +30,7 @@ Offcraft управляет **настоящим клиентом Minecraft Java
 6. Получите настоящий **Java executable и полный массив JVM/main/game-аргументов** из launch-конфигурации экземпляра. Включите classpath/module path, libraries, assets, natives, main class, game directory и параметры профиля. Offcraft не собирает их и не авторизует аккаунт. Обычный лаунчер может не предоставлять приложению stdin; контроллер должен запускать настоящий Java-процесс, не лаунчер или `.bat`-обёртку.
 7. Для **Forge и NeoForge** задайте `earlyWindowControl=false` в `<game-directory>/config/fml.toml` **до** запуска Java, сохранив остальные настройки. Это не свойство `-D`.
 8. Для **Forge** добавьте `-Dterminal.ansi=false` и `-Dterminal.jline=false` к JVM-опциям перед main class.
-9. Для MCP и Node.js-примера ниже установите **Node.js 22+** и получите каталог `mcp/` Offcraft из закреплённой ревизии репозитория. Сохраняйте `adapter.mjs`, `schemas.mjs` и `index.mjs` вместе. npm-зависимостей нет. При распространении сохраняйте [MIT notice](../../LICENSE).
+9. Для MCP или Node.js SDK установите **Node.js 22+** и возьмите полный каталог `mcp/` Offcraft из закреплённой ревизии. Храните модули вместе, включая `recording.mjs` и `sdk.mjs`. npm-зависимостей нет. При распространении сохраняйте [MIT notice](../../LICENSE).
 
 Launch-конфигурация зависит от машины и экземпляра, это не универсальный рецепт classpath. Исполняемый **Fabric development**-пример находится в [mcp.md](mcp.md). Из корня репозитория Offcraft сначала выполните `.\fabric\gradlew.bat -p .\fabric runClient`: явно заданный каталог проекта обеспечивает создание Fabric launch-файлов. После удаления `fabric/build/` восстановите их. Не используйте Fabric Knot-аргументы для Forge/NeoForge.
 
@@ -58,13 +58,15 @@ Launch-конфигурация зависит от машины и экземп
 - В stdout также идут логи Minecraft. Разбирайте полные строки; как протокол обрабатывайте только объекты с `protocol:1` и известным `type`. Остальные строки — логи, не ошибка JSONL-транспорта. Не добавляйте логовые префиксы к протокольному вводу.
 - Дождитесь `event:ready`. Это доступность транспорта, **не** готовность мира. Проверьте `status.screen`; стартовые/onboarding-экраны могут требовать GUI-команд.
 - Сопоставляйте `accepted`, `completed`, `error` по ID. `accepted` не завершает операцию. Только терминальный `completed` или `error`; у `error` поля `code` и `message` находятся наверху. Некорректный запрос может получить `id:null` и не разрешить обычный pending-запрос.
-- Последовательно исполняйте изменяющие операции в scheduler приложения. Пока идёт длительное действие, доступны `status`, `help`, `observe`, `inventory`, `cancel`, `quit`. Остальные команды получают `busy`; игровой очереди задач нет. Очередь stdin ограничена 32 строками: не засыпайте клиент командами.
+- Последовательно исполняйте изменяющие операции в scheduler приложения. Во время действия доступны `status`, `help`, `observe`, `inventory`, `item`, `messages`, `worlds`, `cancel`, `quit`. Остальные получают `busy`; игровой очереди задач нет. Очередь stdin — 32 строки: не засыпайте клиент запросами.
 - Не повторяйте автоматически изменяющую команду с неизвестным исходом. Replay/idempotency history нет; дублирование активного ID даёт событие `duplicate_active_id`, не второй терминальный ответ.
 - При сбое процесса/потока завершите pending-операции ошибкой. Вычитывайте вывод до subprocess `close`, не только `exit`, чтобы не потерять финальный ответ `quit`.
 
 ### Node.js: повторное использование существующего bridge
 
 Используйте `GameBridge`, не создавайте второй JSONL-parser. `submit()` возвращает `{id, command, promise}`; bridge генерирует ID, ждёт `ready`, фильтрует логи и разрешает promise только терминальным ответом. **Аргументы он не валидирует и игровой scheduler не заменяет**: обёртка ниже использует существующий validator, а вызывающий код ждёт изменяющие команды последовательно.
+
+Для валидированного клиента более высокого уровня используйте `launchClient` из `mcp/sdk.mjs`; API, AbortSignal и ограниченная запись сессии описаны в [MCP и SDK](mcp.md#javascript-sdk). Низкоуровневый пример bridge ниже подходит, когда приложение уже владеет дочерним процессом.
 
 Сохраните код как `offcraft-session.mjs` в вашем приложении. Задайте `OFFCRAFT_HOME`, `OFFCRAFT_WORLD`, `OFFCRAFT_CAPTURE_DIR`; подготовьте `launch.offcraft.json` по разделу выше. Пример загружает **существующий** мир, двигается, снимает PNG и выходит. Он не создаёт и не перезаписывает папку мира.
 
@@ -167,10 +169,10 @@ $entry = @{
 {"jsonrpc":"2.0","id":"status-1","method":"tools/call","params":{"name":"offcraft_command","arguments":{"command":"status"}}}
 ```
 
-- `tools/list` возвращает **один tool**, `offcraft_command`, со схемой 20 команд. Initialize/discovery не ждут игровой `ready`; исполнение tool ждёт.
+- `tools/list` возвращает `offcraft_command` со схемами JSONL и `offcraft_capture` (`{path?}` для явного свежего изображения). Initialize/discovery не ждут игровой ready; исполнение ждёт.
 - Game ID генерирует адаптер. **Не** передавайте `id` в tool arguments. JSON-RPC IDs должны быть уникальны всю MCP-сессию.
 - При успешном JSON-RPC `tools/call` проверьте `result.isError`, затем разберите JSON `result.content[0].text`. Game errors — настоящие terminal envelopes. Transport failures содержат `source:adapter`, `type:error`, `code`, `message`, не выдуманный `completed`. Ошибки JSON-RPC метода/валидации находятся в верхнем `error` ответа.
-- stdout MCP содержит только JSON-RPC. Постоянно вычитывайте stderr адаптера: там Minecraft logs/events. PNG остаётся локальным файлом; MCP не возвращает image content block и не загружает его автоматически.
+- stdout MCP содержит только JSON-RPC; вычитывайте stderr с Minecraft logs/events. `offcraft_command` оставляет PNG локальным файлом. `offcraft_capture` дополнительно возвращает ограниченный PNG image block после успешного render; ошибка чтения — явная ошибка адаптера с `game_response`. См. [ограничения изображений](mcp.md#изображение-по-запросу).
 - Для отказа от вызова отправьте `notifications/cancelled` с MCP request ID. Отменённый вызов **не получает ответа**. Адаптер пытается выполнить game `cancel` для точного game ID; отменяется только активный `act`. Отказ от load/connect-вызова не останавливает загрузку/подключение.
 
 ```json
@@ -214,7 +216,7 @@ $entry = @{
 | Раннее окно Forge | `earlyWindowControl=false` в настоящем экземпляре до запуска |
 | Forge logs нарушают framing | Обе terminal JVM-опции; всё равно фильтровать не-протокольные строки |
 | MCP подключён, tool не работает | Handshake; JSON-RPC error или `isError`; child stderr и launch args |
-| PNG не найден | Возвращённый path и process cwd; MCP не передаёт PNG bytes |
+| PNG не найден | Возвращённый path и process cwd; offcraft_capture возвращает MCP image block, offcraft_command/render — метаданные файла |
 | После очистки нет argument file | Восстановить development-launch через `runClient` нужного загрузчика |
 
 Полные контракты: [сборка/запуск](development.md), [JSONL](protocol.md), [MCP](mcp.md), [архитектура](architecture.md).

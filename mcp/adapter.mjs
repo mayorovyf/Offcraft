@@ -1,10 +1,14 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
-import { COMMAND_TOOL, validateCommandArguments } from './schemas.mjs';
+import { constants as fsConstants } from 'node:fs';
+import { open } from 'node:fs/promises';
+import { resolve as resolvePath } from 'node:path';
+import { COMMAND_TOOL, IMAGE_TOOL, validateCommandArguments, validateCaptureArguments } from './schemas.mjs';
+import { SessionRecorder, DEFAULT_RECORD_MAX_BYTES } from './recording.mjs';
 
 export const PROTOCOL_VERSION = '2024-11-05';
-export const USAGE = 'Usage: node mcp/index.mjs --client EXECUTABLE [--args-json \'["arg", ...]\'] [--cwd DIRECTORY]';
+export const USAGE = 'Usage: node mcp/index.mjs --client EXECUTABLE [--args-json \'["arg", ...]\'] [--cwd DIRECTORY] [--record PATH] [--record-max-bytes N]';
 
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const requestId = (value) => typeof value === 'string' || (typeof value === 'number' && Number.isSafeInteger(value));
@@ -16,7 +20,7 @@ export function parseCliArgs(argv) {
   const seen = new Set();
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index];
-    if (!['--client', '--args-json', '--cwd'].includes(flag)) throw new Error(`Unknown option: ${flag}`);
+    if (!['--client', '--args-json', '--cwd', '--record', '--record-max-bytes'].includes(flag)) throw new Error(`Unknown option: ${flag}`);
     if (seen.has(flag)) throw new Error(`Duplicate option: ${flag}`);
     seen.add(flag);
     const value = argv[index + 1];
@@ -26,12 +30,16 @@ export function parseCliArgs(argv) {
       try { args = JSON.parse(value); } catch { throw new Error('--args-json must be a JSON array of strings'); }
       if (!Array.isArray(args) || args.some((arg) => typeof arg !== 'string' || arg.includes('\0'))) throw new Error('--args-json must be a JSON array of strings without NUL characters');
       options.args = args;
+    } else if (flag === '--record-max-bytes') {
+      if (!/^[0-9]+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) < 1) throw new Error('--record-max-bytes must be a positive safe integer');
+      options.recordMaxBytes = Number(value);
     } else {
       if (!nonempty(value)) throw new Error(`${flag} must be a nonempty string without NUL characters`);
-      options[flag === '--client' ? 'client' : 'cwd'] = value;
+      options[flag === '--client' ? 'client' : flag === '--record' ? 'record' : 'cwd'] = value;
     }
   }
   if (!options.client) throw new Error('--client is required');
+  if (options.recordMaxBytes !== undefined && options.record === undefined) throw new Error('--record-max-bytes requires --record');
   return options;
 }
 
@@ -43,13 +51,19 @@ export class GameTransportError extends Error {
   }
 }
 
-class AbandonedRequest extends Error {}
+export class AbandonedRequest extends Error {
+  constructor(message = 'Request cancelled') { super(message); this.name = 'AbortError'; this.code = 'ABORT_ERR'; }
+}
 
 /** Correlates unique game IDs independently of the MCP request IDs. */
 export class GameBridge {
-  constructor(child, { log = (text) => process.stderr.write(text) } = {}) {
+  constructor(child, { log = (text) => process.stderr.write(text), observers = [] } = {}) {
     this.child = child;
     this.log = log;
+    this.observers = typeof observers === 'function' ? [observers] : [...observers];
+    this.readyMessage = null;
+    this.readyPromise = new Promise((resolve, reject) => { this.resolveReady = resolve; this.rejectReady = reject; });
+    void this.readyPromise.catch(() => {});
     this.pending = new Map();
     this.ready = false;
     this.accepting = true;
@@ -78,16 +92,34 @@ export class GameBridge {
     });
   }
 
-  submit(args) {
+  waitReady() { return this.readyPromise; }
+
+  observe(direction, message) {
+    for (const observer of this.observers) {
+      try {
+        const result = observer(direction, structuredClone(message));
+        if (result?.then) void Promise.resolve(result).catch((error) => this.log(`offcraft observer: ${error.message}\n`));
+      } catch (error) { this.log(`offcraft observer: ${error.message}\n`); }
+    }
+  }
+
+  submit(args, { signal } = {}) {
     const id = `offcraft-${randomUUID()}`;
     let resolve;
     let reject;
     const promise = new Promise((accept, fail) => { resolve = accept; reject = fail; });
     const pending = { id, args, sent: false, resolve, reject };
-    if (this.failure || !this.accepting || this.exited) {
+    if (signal?.aborted) {
+      reject(new AbandonedRequest());
+    } else if (this.failure || !this.accepting || this.exited) {
       reject(this.failure ?? new GameTransportError('client_closed', 'Game client is not accepting requests'));
     } else {
       this.pending.set(id, pending);
+      if (signal) {
+        const abort = () => this.cancel(id);
+        signal.addEventListener('abort', abort, { once: true });
+        void promise.then(() => signal.removeEventListener('abort', abort), () => signal.removeEventListener('abort', abort));
+      }
       if (this.ready) this.send(pending);
     }
     return { id, command: args.command, promise };
@@ -98,9 +130,11 @@ export class GameBridge {
     pending.sent = true;
     try {
       // Generated ID is last, so callers cannot replace the correlation ID.
-      this.child.stdin.write(`${JSON.stringify({ ...pending.args, id: pending.id })}\n`, (error) => {
+      const message = { ...pending.args, id: pending.id };
+      this.child.stdin.write(`${JSON.stringify(message)}\n`, (error) => {
         if (error) this.fail(new GameTransportError('client_stdin_failed', error.message));
       });
+      this.observe('request', message);
     } catch (error) {
       this.fail(new GameTransportError('client_stdin_failed', error.message));
     }
@@ -113,10 +147,13 @@ export class GameBridge {
       this.log(`${line}\n`);
       return;
     }
+    this.observe(message.type === 'event' ? 'event' : 'response', message);
     if (message.type === 'event') {
       this.log(`${line}\n`);
       if (message.event === 'ready' && !this.ready && this.accepting && !this.failure) {
         this.ready = true;
+        this.readyMessage = message;
+        this.resolveReady(message);
         for (const pending of this.pending.values()) this.send(pending);
       }
       return;
@@ -136,18 +173,20 @@ export class GameBridge {
     const pending = this.pending.get(id);
     if (!pending) return;
     this.pending.delete(id);
-    pending.reject(new AbandonedRequest('MCP request cancelled'));
+    pending.reject(new AbandonedRequest());
     if (!pending.sent || this.failure || !this.accepting || this.exited) return;
     const cancellation = this.submit({ command: 'cancel', target: id });
     void cancellation.promise.then((response) => {
       if (response.type === 'error') this.log(`offcraft cancellation: ${JSON.stringify(response)}\n`);
     }, (error) => this.log(`offcraft cancellation: ${error.message}\n`));
+    return cancellation;
   }
 
   fail(error) {
     if (!this.failure) this.failure = error;
     this.accepting = false;
     for (const pending of this.pending.values()) pending.reject(this.failure);
+    this.rejectReady(this.failure);
     this.pending.clear();
   }
 
@@ -179,13 +218,38 @@ function toolResult(response, failed = response.type === 'error') {
   return { content: [{ type: 'text', text: JSON.stringify(response) }], isError: failed };
 }
 
+export const MAX_CAPTURE_BYTES = 16 * 1024 * 1024;
+const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+async function captureResult(response, cwd) {
+  if (response.type !== 'completed') return toolResult(response);
+  const path = response.data?.capture?.path ?? response.data?.path;
+  if (!nonempty(path)) throw new GameTransportError('capture_read_failed', 'Successful render response did not include a capture path');
+  const file = await open(resolvePath(cwd, path), fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0));
+  try {
+    const stat = await file.stat();
+    if (!stat.isFile() || stat.size < PNG_SIGNATURE.length || stat.size > MAX_CAPTURE_BYTES) throw new Error(`Capture must be a PNG file of at most ${MAX_CAPTURE_BYTES} bytes`);
+    // The extra byte detects growth; neither stat races nor special files permit an unbounded read.
+    const bytes = Buffer.alloc(stat.size + 1);
+    let length = 0;
+    while (length < bytes.length) {
+      const chunk = await file.read(bytes, length, bytes.length - length, null);
+      if (!chunk.bytesRead) break;
+      length += chunk.bytesRead;
+    }
+    if (length !== stat.size || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) throw new Error('Capture changed during reading or does not have a PNG signature');
+    return { content: [...toolResult(response).content, { type: 'image', mimeType: 'image/png', data: bytes.subarray(0, length).toString('base64') }], isError: false };
+  } finally { await file.close(); }
+}
+
 /** A line-oriented MCP endpoint; concurrent tools/call requests never serialize. */
 export class McpAdapter {
-  constructor(bridge, { input = process.stdin, output = process.stdout, log = (text) => process.stderr.write(text) } = {}) {
+  constructor(bridge, { input = process.stdin, output = process.stdout, log = (text) => process.stderr.write(text), cwd = process.cwd() } = {}) {
     this.bridge = bridge;
     this.input = input;
     this.output = output;
     this.log = log;
+    this.cwd = cwd;
     this.initializing = false;
     this.initializeResponded = false;
     this.initialized = false;
@@ -276,22 +340,28 @@ export class McpAdapter {
     if (message.method === 'tools/list') {
       const params = paramsObject(message.params, ['cursor']);
       if (params.cursor !== undefined) throw new RpcError(-32602, 'Invalid cursor: the complete tool list fits in one page');
-      return { tools: [COMMAND_TOOL] };
+      return { tools: [COMMAND_TOOL, IMAGE_TOOL] };
     }
     const params = paramsObject(message.params, ['name', 'arguments']);
-    if (params.name !== COMMAND_TOOL.name) throw new RpcError(-32602, `Unknown tool: ${String(params.name)}`);
-    const errors = validateCommandArguments(params.arguments);
+    const image = params.name === IMAGE_TOOL.name;
+    if (!image && params.name !== COMMAND_TOOL.name) throw new RpcError(-32602, `Unknown tool: ${String(params.name)}`);
+    const args = image && params.arguments === undefined ? {} : params.arguments;
+    const errors = image ? validateCaptureArguments(args) : validateCommandArguments(args);
     if (errors.length) throw new RpcError(-32602, 'Invalid tool arguments', { errors });
-    const game = this.bridge.submit(params.arguments);
+    const game = this.bridge.submit(image ? { ...args, command: 'render' } : args);
     const call = { game, cancelled: false };
+    let response;
     this.calls.set(message.id, call);
     try {
-      const response = await game.promise;
-      if (!call.cancelled) return toolResult(response);
+      response = await game.promise;
+      if (!call.cancelled) {
+        const result = image ? await captureResult(response, this.cwd) : toolResult(response);
+        if (!call.cancelled) return result;
+      }
     } catch (error) {
       if (!call.cancelled) {
         // This is explicitly an adapter failure, not a synthetic game envelope.
-        return toolResult({ source: 'adapter', type: 'error', code: error.code ?? 'transport_failed', message: error.message, game_id: game.id, command: game.command }, true);
+        return toolResult({ source: 'adapter', type: 'error', code: image && response?.type === 'completed' ? 'capture_read_failed' : error.code ?? 'transport_failed', message: error.message, game_id: game.id, command: game.command, ...(response ? { game_response: response } : {}) }, true);
       }
     } finally {
       if (this.calls.get(message.id) === call) this.calls.delete(message.id);
@@ -309,18 +379,38 @@ export class McpAdapter {
   }
 }
 
+/** Shared process/JSONL lifecycle for MCP and the JavaScript SDK. */
+export function launchGame(options, { log = (text) => process.stderr.write(text), spawnClient = spawn, observers = [] } = {}) {
+  if (!record(options) || !nonempty(options.client)) throw new TypeError('client must be a nonempty executable without NUL characters');
+  const args = options.args ?? [];
+  const cwd = options.cwd ?? process.cwd();
+  if (!Array.isArray(args) || args.some((arg) => typeof arg !== 'string' || arg.includes('\0'))) throw new TypeError('args must be an array of strings without NUL characters');
+  if (!nonempty(cwd)) throw new TypeError('cwd must be a nonempty directory without NUL characters');
+  if (options.recordMaxBytes !== undefined && options.record === undefined) throw new TypeError('recordMaxBytes requires record');
+  const listeners = typeof observers === 'function' ? [observers] : [...observers];
+  if (listeners.some((listener) => typeof listener !== 'function')) throw new TypeError('observers must be functions');
+  const recorder = options.record === undefined ? null : new SessionRecorder(options.record, { maxBytes: options.recordMaxBytes ?? DEFAULT_RECORD_MAX_BYTES, log });
+  let child;
+  try { child = spawnClient(options.client, args, { cwd, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }); }
+  catch (error) {
+    if (recorder) void recorder.close().catch((failure) => log(`offcraft recording: ${failure.message}\n`));
+    throw error;
+  }
+  const bridge = new GameBridge(child, { log, observers: [...listeners, ...(recorder ? [(direction, message) => recorder.observe(direction, message)] : [])] });
+  const closed = bridge.closed.then(async (status) => { if (recorder) await recorder.close(); return status; });
+  void closed.catch(() => {});
+  return { child, bridge, recorder, closed, cwd };
+}
+
 export function launchAdapter(options, {
   input = process.stdin, output = process.stdout, error = process.stderr, spawnClient = spawn,
 } = {}) {
   const log = (text) => error.write(text);
-  const child = spawnClient(options.client, options.args, {
-    cwd: options.cwd, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
-  });
-  const bridge = new GameBridge(child, { log });
-  const adapter = new McpAdapter(bridge, { input, output, log });
-  const closed = bridge.closed.then((status) => new Promise((resolve) => {
+  const game = launchGame(options, { log, spawnClient });
+  const adapter = new McpAdapter(game.bridge, { input, output, log, cwd: game.cwd });
+  const closed = game.closed.then((status) => new Promise((resolve) => {
     // Let pending tool promises emit actual final/error responses before stopping.
     setImmediate(() => { adapter.close(); resolve(status); });
-  }));
-  return { child, bridge, adapter, closed };
+  }), (failure) => { adapter.close(); throw failure; });
+  return { ...game, adapter, closed };
 }

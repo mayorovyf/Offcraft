@@ -4,12 +4,12 @@
   "license": "MIT",
   "private": true,
   "type": "module",
-  "description": "Dependency-free stdio MCP bridge to the Offcraft Fabric JSONL client",
+  "description": "Dependency-free MCP bridge and JavaScript SDK for the Offcraft JSONL client",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "start": "node index.mjs",
-    "test": "node --test adapter.test.mjs"
+    "test": "node --test *.test.mjs"
   }
 }
